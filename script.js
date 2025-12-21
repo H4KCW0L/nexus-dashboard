@@ -422,6 +422,7 @@ class NexusDashboard {
         const menu = document.createElement('div');
         menu.className = 'member-dropdown';
         menu.innerHTML = `
+            <div class="dropdown-item" data-action="credentials">VIEW CREDENTIALS</div>
             ${canKickBan ? `<div class="dropdown-item" data-action="kick">KICK</div>` : ''}
             ${canKickBan && targetRole !== 'owner' ? `<div class="dropdown-item danger" data-action="ban">BAN</div>` : ''}
             ${myRole === 'owner' && targetRole !== 'owner' ? `
@@ -455,6 +456,27 @@ class NexusDashboard {
     async handleMemberAction(action, targetUser) {
         let endpoint, body;
 
+        if (action === 'credentials') {
+            // Show credentials in a popup
+            try {
+                const response = await fetch('/api/member/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ adminUser: currentUser.username, targetUser })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.showCredentialsPopup(data);
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert('Error getting credentials');
+            }
+            return;
+        }
+
         if (action === 'kick') {
             endpoint = '/api/member/kick';
             body = { adminUser: currentUser.username, targetUser };
@@ -486,6 +508,39 @@ class NexusDashboard {
         } catch (e) {
             alert('Error performing action');
         }
+    }
+
+    showCredentialsPopup(data) {
+        // Remove existing popup
+        const existing = document.querySelector('.credentials-popup');
+        if (existing) existing.remove();
+
+        const popup = document.createElement('div');
+        popup.className = 'credentials-popup';
+        popup.innerHTML = `
+            <div class="credentials-box">
+                <h3>ACCOUNT RECOVERY</h3>
+                <div class="credentials-info">
+                    <div class="cred-field">
+                        <label>Username:</label>
+                        <span>${data.username}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Password:</label>
+                        <span>${data.password}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Role:</label>
+                        <span class="role-badge ${data.role}">${data.role.toUpperCase()}</span>
+                    </div>
+                </div>
+                <button class="btn-primary" id="close-creds">CLOSE</button>
+            </div>
+        `;
+        
+        document.body.appendChild(popup);
+        document.getElementById('close-creds').onclick = () => popup.remove();
+        popup.onclick = (e) => { if (e.target === popup) popup.remove(); };
     }
 
     // PROFILE

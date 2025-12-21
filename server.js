@@ -203,6 +203,30 @@ app.post('/api/member/role', (req, res) => {
     res.json({ success: true });
 });
 
+// Get user credentials (for recovery - owner/admin only)
+app.post('/api/member/credentials', (req, res) => {
+    const { adminUser, targetUser } = req.body;
+    const admin = registeredUsers[adminUser];
+    const target = registeredUsers[targetUser];
+    
+    if (!admin || (admin.role !== 'owner' && admin.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+    
+    if (!target) {
+        res.json({ success: false, message: 'User not found' });
+        return;
+    }
+    
+    res.json({ 
+        success: true, 
+        username: target.username,
+        password: target.password,
+        role: target.role
+    });
+});
+
 // ============ IP LOGGER ============
 const IPLOG_FILE = 'iplogs.json';
 
