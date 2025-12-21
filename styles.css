@@ -1833,17 +1833,16 @@ body {
 /* Móviles */
 @media screen and (max-width: 768px) {
     body {
-        overflow: auto;
+        overflow: auto !important;
+        height: auto !important;
     }
     
     .container {
-        display: flex;
-        flex-direction: column;
-        height: auto;
-        min-height: 100vh;
-        grid-template-areas: none;
-        grid-template-rows: none;
-        grid-template-columns: none;
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        min-height: 100vh !important;
+        border: none !important;
     }
     
     /* Header móvil */
@@ -1854,6 +1853,9 @@ body {
         padding: 10px 15px;
         flex-wrap: wrap;
         gap: 10px;
+        width: 100%;
+        background: #1a1a1a;
+        border-bottom: 1px solid #ff4444;
     }
     
     .thanks-section {
@@ -1866,12 +1868,13 @@ body {
     
     /* Sidebar móvil - menú horizontal */
     .sidebar {
-        width: 100%;
-        border-right: none;
+        width: 100% !important;
+        border-right: none !important;
         border-bottom: 1px solid #ff4444;
         padding: 10px 0;
         overflow-x: auto;
         overflow-y: hidden;
+        background: #1a1a1a;
     }
     
     .logo {
@@ -1913,6 +1916,8 @@ body {
         flex: 1;
         padding: 10px;
         overflow-y: visible;
+        width: 100%;
+        background: #0f0f0f;
     }
     
     .custom-area {
@@ -1956,6 +1961,9 @@ body {
     .footer {
         padding: 10px 15px;
         justify-content: center;
+        width: 100%;
+        background: #1a1a1a;
+        border-top: 1px solid #ff4444;
     }
     
     .footer-stats {
