@@ -4,17 +4,185 @@ const { Server } = require('socket.io');
 const fs = require('fs');
 const net = require('net');
 const dns = require('dns');
+const rateLimit = require('express-rate-limit');
+const slowDown = require('express-slow-down');
+const helmet = require('helmet');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+// ============ PROTECCIÓN ANTI-DDOS ============
+
+// Headers de seguridad
+app.use(helmet({
+    contentSecurityPolicy: false, // Desactivado para permitir inline scripts
+    crossOriginEmbedderPolicy: false
+}));
+
+// Obtener IP real del cliente
+const getClientIP = (req) => {
+    let ip = req.headers['x-forwarded-for'] ||
+             req.headers['x-real-ip'] ||
+             req.headers['cf-connecting-ip'] ||
+             req.socket?.remoteAddress ||
+             'unknown';
+    if (ip.includes(',')) ip = ip.split(',')[0].trim();
+    return ip.replace('::ffff:', '').replace('::1', '127.0.0.1');
+};
+
+// Sistema de bloqueo de IPs
+const blockedIPs = new Map(); // IP -> timestamp cuando se desbloquea
+const ipRequestCount = new Map(); // IP -> { count, firstRequest }
+const suspiciousIPs = new Set();
+
+// Limpiar IPs bloqueadas expiradas cada minuto
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, unblockTime] of blockedIPs.entries()) {
+        if (now >= unblockTime) {
+            blockedIPs.delete(ip);
+            console.log(`IP desbloqueada: ${ip}`);
+        }
+    }
+    // Limpiar contadores viejos
+    for (const [ip, data] of ipRequestCount.entries()) {
+        if (now - data.firstRequest > 60000) {
+            ipRequestCount.delete(ip);
+        }
+    }
+}, 60000);
+
+// Middleware para bloquear IPs
+const ipBlocker = (req, res, next) => {
+    const ip = getClientIP(req);
+    
+    // Verificar si está bloqueada
+    if (blockedIPs.has(ip)) {
+        const remaining = Math.ceil((blockedIPs.get(ip) - Date.now()) / 1000);
+        return res.status(429).json({ 
+            error: 'IP bloqueada temporalmente', 
+            retryAfter: remaining 
+        });
+    }
+    
+    // Contar requests
+    const now = Date.now();
+    if (!ipRequestCount.has(ip)) {
+        ipRequestCount.set(ip, { count: 1, firstRequest: now });
+    } else {
+        const data = ipRequestCount.get(ip);
+        if (now - data.firstRequest > 60000) {
+            ipRequestCount.set(ip, { count: 1, firstRequest: now });
+        } else {
+            data.count++;
+            // Si hace más de 200 requests en 1 minuto, bloquear por 15 minutos
+            if (data.count > 200) {
+                blockedIPs.set(ip, now + 15 * 60 * 1000);
+                console.log(`IP bloqueada por exceso de requests: ${ip}`);
+                return res.status(429).json({ 
+                    error: 'Demasiadas solicitudes. IP bloqueada por 15 minutos.' 
+                });
+            }
+        }
+    }
+    
+    next();
+};
+
+// Rate limiter general - 100 requests por minuto
+const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 100,
+    message: { error: 'Demasiadas solicitudes, intenta más tarde' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: getClientIP
+});
+
+// Rate limiter estricto para login/registro - 10 intentos por 15 minutos
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Demasiados intentos de autenticación. Espera 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: getClientIP,
+    handler: (req, res) => {
+        const ip = getClientIP(req);
+        suspiciousIPs.add(ip);
+        res.status(429).json({ error: 'Demasiados intentos. IP marcada como sospechosa.' });
+    }
+});
+
+// Rate limiter para API - 60 requests por minuto
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    message: { error: 'Límite de API alcanzado' },
+    keyGenerator: getClientIP
+});
+
+// Slow down - ralentiza respuestas después de muchos requests
+const speedLimiter = slowDown({
+    windowMs: 60 * 1000,
+    delayAfter: 50,
+    delayMs: (hits) => hits * 100, // Cada request extra añade 100ms de delay
+    keyGenerator: getClientIP
+});
+
+// Aplicar protecciones globales
+app.use(ipBlocker);
+app.use(speedLimiter);
+app.use(generalLimiter);
+
+// Limitar tamaño de body
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Servir archivos estáticos con cache
+app.use(express.static(__dirname, {
+    maxAge: '1h',
+    etag: true
+}));
+
+// ============ FIN PROTECCIÓN ANTI-DDOS ============
+
+
+// Socket.io con protección
+const io = new Server(server, {
+    connectionStateRecovery: {},
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    maxHttpBufferSize: 1e6, // 1MB max
+    perMessageDeflate: false
+});
+
+// Protección de conexiones Socket.io
+const socketConnections = new Map(); // IP -> count
+const MAX_SOCKETS_PER_IP = 5;
+
+io.use((socket, next) => {
+    const ip = socket.handshake.headers['x-forwarded-for']?.split(',')[0] || 
+               socket.handshake.address?.replace('::ffff:', '') || 'unknown';
+    
+    // Verificar si IP está bloqueada
+    if (blockedIPs.has(ip)) {
+        return next(new Error('IP bloqueada'));
+    }
+    
+    // Limitar conexiones por IP
+    const currentCount = socketConnections.get(ip) || 0;
+    if (currentCount >= MAX_SOCKETS_PER_IP) {
+        return next(new Error('Demasiadas conexiones desde esta IP'));
+    }
+    
+    socketConnections.set(ip, currentCount + 1);
+    socket.clientIP = ip;
+    next();
+});
 
 // Store active ping sessions
 const activePings = new Map();
-
-// Middleware
-app.use(express.static(__dirname));
-app.use(express.json({ limit: '10mb' }));
 
 // Database file
 const DB_FILE = 'users.json';
@@ -29,7 +197,6 @@ function loadUsers() {
     } catch (e) {
         console.log('Creating new database...');
     }
-    // Default users
     const defaultUsers = {
         'admin': {
             username: 'admin',
@@ -48,7 +215,6 @@ function saveUsers(users) {
     fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
 }
 
-// Voice sounds system
 function loadVoiceSounds() {
     try {
         if (fs.existsSync(SOUNDS_FILE)) {
@@ -64,13 +230,18 @@ function saveVoiceSounds(sounds) {
 
 let voiceSounds = loadVoiceSounds();
 let registeredUsers = loadUsers();
-
-// Store connected users (online)
 const onlineUsers = new Map();
 
-// API Routes
-app.post('/api/login', (req, res) => {
+// ============ API ROUTES CON PROTECCIÓN ============
+
+// Login con rate limit estricto
+app.post('/api/login', authLimiter, (req, res) => {
     const { username, password } = req.body;
+    
+    if (!username || !password) {
+        return res.json({ success: false, message: 'Missing credentials' });
+    }
+    
     const user = registeredUsers[username];
     
     if (user && user.password === password) {
@@ -80,12 +251,20 @@ app.post('/api/login', (req, res) => {
     }
 });
 
-app.post('/api/register', (req, res) => {
+// Registro con rate limit estricto
+app.post('/api/register', authLimiter, (req, res) => {
     const { username, password } = req.body;
     
+    if (!username || !password) {
+        return res.json({ success: false, message: 'Missing credentials' });
+    }
+    
+    if (username.length > 20 || password.length > 50) {
+        return res.json({ success: false, message: 'Input too long' });
+    }
+    
     if (registeredUsers[username]) {
-        res.json({ success: false, message: 'Username already exists' });
-        return;
+        return res.json({ success: false, message: 'Username already exists' });
     }
     
     registeredUsers[username] = {
@@ -100,7 +279,7 @@ app.post('/api/register', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/members', (req, res) => {
+app.get('/api/members', apiLimiter, (req, res) => {
     const members = Object.values(registeredUsers).map(u => ({
         username: u.username,
         role: u.role,
@@ -112,25 +291,32 @@ app.get('/api/members', (req, res) => {
     res.json(members);
 });
 
-app.post('/api/profile/update', (req, res) => {
+app.post('/api/profile/update', apiLimiter, (req, res) => {
     const { username, bio, avatar, newUsername } = req.body;
     
     if (!registeredUsers[username]) {
-        res.json({ success: false, message: 'User not found' });
-        return;
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    // Validar tamaños
+    if (bio && bio.length > 500) {
+        return res.json({ success: false, message: 'Bio too long' });
+    }
+    if (avatar && avatar.length > 500) {
+        return res.json({ success: false, message: 'Avatar URL too long' });
     }
     
     const user = registeredUsers[username];
     
-    // Update fields
     if (bio !== undefined) user.bio = bio;
     if (avatar !== undefined) user.avatar = avatar;
     
-    // Handle username change
     if (newUsername && newUsername !== username) {
+        if (newUsername.length > 20) {
+            return res.json({ success: false, message: 'Username too long' });
+        }
         if (registeredUsers[newUsername]) {
-            res.json({ success: false, message: 'Username already taken' });
-            return;
+            return res.json({ success: false, message: 'Username already taken' });
         }
         user.username = newUsername;
         registeredUsers[newUsername] = user;
@@ -141,17 +327,16 @@ app.post('/api/profile/update', (req, res) => {
     res.json({ success: true, user: { ...user, password: undefined } });
 });
 
-// Kick user (remove from online, they can rejoin)
-app.post('/api/member/kick', (req, res) => {
+
+// Kick user
+app.post('/api/member/kick', apiLimiter, (req, res) => {
     const { adminUser, targetUser } = req.body;
     const admin = registeredUsers[adminUser];
     
     if (!admin || (admin.role !== 'owner' && admin.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
-    // Find and disconnect user
     for (const [id, name] of onlineUsers.entries()) {
         if (name === targetUser) {
             io.to(id).emit('kicked', 'You have been kicked');
@@ -162,28 +347,24 @@ app.post('/api/member/kick', (req, res) => {
     res.json({ success: true });
 });
 
-// Ban user (delete account)
-app.post('/api/member/ban', (req, res) => {
+// Ban user
+app.post('/api/member/ban', apiLimiter, (req, res) => {
     const { adminUser, targetUser } = req.body;
     const admin = registeredUsers[adminUser];
     const target = registeredUsers[targetUser];
     
     if (!admin || (admin.role !== 'owner' && admin.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
     if (!target) {
-        res.json({ success: false, message: 'User not found' });
-        return;
+        return res.json({ success: false, message: 'User not found' });
     }
     
     if (target.role === 'owner') {
-        res.json({ success: false, message: 'Cannot ban owner' });
-        return;
+        return res.json({ success: false, message: 'Cannot ban owner' });
     }
     
-    // Kick from online
     for (const [id, name] of onlineUsers.entries()) {
         if (name === targetUser) {
             io.to(id).emit('banned', 'You have been banned');
@@ -191,32 +372,28 @@ app.post('/api/member/ban', (req, res) => {
         }
     }
     
-    // Delete account
     delete registeredUsers[targetUser];
     saveUsers(registeredUsers);
     io.emit('userList', Array.from(new Set(onlineUsers.values())));
     res.json({ success: true });
 });
 
-// Promote/demote user
-app.post('/api/member/role', (req, res) => {
+// Change role
+app.post('/api/member/role', apiLimiter, (req, res) => {
     const { adminUser, targetUser, newRole } = req.body;
     const admin = registeredUsers[adminUser];
     const target = registeredUsers[targetUser];
     
     if (!admin || admin.role !== 'owner') {
-        res.json({ success: false, message: 'Only owner can change roles' });
-        return;
+        return res.json({ success: false, message: 'Only owner can change roles' });
     }
     
     if (!target) {
-        res.json({ success: false, message: 'User not found' });
-        return;
+        return res.json({ success: false, message: 'User not found' });
     }
     
     if (target.role === 'owner') {
-        res.json({ success: false, message: 'Cannot change owner role' });
-        return;
+        return res.json({ success: false, message: 'Cannot change owner role' });
     }
     
     target.role = newRole;
@@ -224,20 +401,18 @@ app.post('/api/member/role', (req, res) => {
     res.json({ success: true });
 });
 
-// Get user credentials (for recovery - owner/admin only)
-app.post('/api/member/credentials', (req, res) => {
+// Get credentials
+app.post('/api/member/credentials', apiLimiter, (req, res) => {
     const { adminUser, targetUser } = req.body;
     const admin = registeredUsers[adminUser];
     const target = registeredUsers[targetUser];
     
     if (!admin || (admin.role !== 'owner' && admin.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
     if (!target) {
-        res.json({ success: false, message: 'User not found' });
-        return;
+        return res.json({ success: false, message: 'User not found' });
     }
     
     res.json({ 
@@ -266,11 +441,9 @@ function saveIPLogs(logs) {
 
 let ipLogs = loadIPLogs();
 
-// Create new tracking link
-app.post('/api/iplogger/create', (req, res) => {
+app.post('/api/iplogger/create', apiLimiter, (req, res) => {
     const { owner, redirectUrl, customSlug } = req.body;
     
-    // Use custom slug or generate random
     let trackId = customSlug ? customSlug.toLowerCase().replace(/[^a-z0-9-]/g, '') : '';
     if (!trackId || ipLogs[trackId]) {
         trackId = Math.random().toString(36).substring(2, 10);
@@ -284,28 +457,21 @@ app.post('/api/iplogger/create', (req, res) => {
     };
     saveIPLogs(ipLogs);
     
-    res.json({ 
-        success: true, 
-        trackId,
-        trackUrl: `/t/${trackId}`
-    });
+    res.json({ success: true, trackId, trackUrl: `/t/${trackId}` });
 });
 
-// Get logs for a tracking link
-app.get('/api/iplogger/logs/:trackId', (req, res) => {
+app.get('/api/iplogger/logs/:trackId', apiLimiter, (req, res) => {
     const { trackId } = req.params;
     const log = ipLogs[trackId];
     
     if (!log) {
-        res.json({ success: false, message: 'Link not found' });
-        return;
+        return res.json({ success: false, message: 'Link not found' });
     }
     
     res.json({ success: true, data: log });
 });
 
-// Get all links for a user
-app.get('/api/iplogger/mylinks/:username', (req, res) => {
+app.get('/api/iplogger/mylinks/:username', apiLimiter, (req, res) => {
     const { username } = req.params;
     const userLinks = [];
     
@@ -318,8 +484,7 @@ app.get('/api/iplogger/mylinks/:username', (req, res) => {
     res.json(userLinks);
 });
 
-// Delete a tracking link
-app.delete('/api/iplogger/delete/:trackId', (req, res) => {
+app.delete('/api/iplogger/delete/:trackId', apiLimiter, (req, res) => {
     const { trackId } = req.params;
     
     if (ipLogs[trackId]) {
@@ -331,32 +496,18 @@ app.delete('/api/iplogger/delete/:trackId', (req, res) => {
     }
 });
 
-// Tracking endpoint - captures IP when visited
 app.get('/t/:trackId', async (req, res) => {
     const { trackId } = req.params;
     const log = ipLogs[trackId];
     
     if (!log) {
-        res.status(404).send('Not found');
-        return;
+        return res.status(404).send('Not found');
     }
     
-    // Get visitor IP - try multiple headers
-    let ip = req.headers['x-forwarded-for'] ||
-             req.headers['x-real-ip'] ||
-             req.headers['cf-connecting-ip'] ||
-             req.connection?.remoteAddress ||
-             req.socket?.remoteAddress ||
-             'Unknown';
+    let ip = getClientIP(req);
     
-    // Clean IP
-    if (ip.includes(',')) ip = ip.split(',')[0].trim();
-    ip = ip.replace('::ffff:', '').replace('::1', '127.0.0.1');
-    
-    // Get IP info from API
-    let ipInfo = { ip: ip };
+    let ipInfo = { ip };
     try {
-        // Skip localhost IPs
         if (ip !== '127.0.0.1' && ip !== 'localhost' && !ip.startsWith('192.168.') && !ip.startsWith('10.')) {
             const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`);
             const data = await response.json();
@@ -377,13 +528,12 @@ app.get('/t/:trackId', async (req, res) => {
                 };
             }
         } else {
-            ipInfo = { ip: ip, country: 'Localhost', city: 'Local', isp: 'Local Network' };
+            ipInfo = { ip, country: 'Localhost', city: 'Local', isp: 'Local Network' };
         }
     } catch (e) {
         console.log('IP API error:', e.message);
     }
     
-    // Save log with more info
     log.logs.push({
         ...ipInfo,
         userAgent: req.headers['user-agent'],
@@ -393,24 +543,24 @@ app.get('/t/:trackId', async (req, res) => {
     });
     saveIPLogs(ipLogs);
     
-    // Notify via socket
     io.emit('iplog', { trackId, log: log.logs[log.logs.length - 1] });
-    
-    // Redirect
     res.redirect(log.redirectUrl);
 });
-// ============ END IP LOGGER ============
+
 
 // ============ PORT SCANNER ============
-app.post('/api/portscan', async (req, res) => {
+app.post('/api/portscan', apiLimiter, async (req, res) => {
     const { target, ports } = req.body;
     
     if (!target || !ports || !Array.isArray(ports)) {
-        res.json({ success: false, message: 'Invalid parameters' });
-        return;
+        return res.json({ success: false, message: 'Invalid parameters' });
+    }
+    
+    // Limitar cantidad de puertos
+    if (ports.length > 100) {
+        return res.json({ success: false, message: 'Max 100 ports allowed' });
     }
 
-    // Resolve hostname to IP if needed
     let ip = target;
     try {
         if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(target)) {
@@ -422,8 +572,7 @@ app.post('/api/portscan', async (req, res) => {
             });
         }
     } catch (e) {
-        res.json({ success: false, message: 'Could not resolve hostname' });
-        return;
+        return res.json({ success: false, message: 'Could not resolve hostname' });
     }
 
     const results = [];
@@ -472,21 +621,18 @@ function getServiceName(port) {
     return services[port] || 'UNKNOWN';
 }
 
-// ============ REAL PINGER ============
-app.post('/api/ping/start', (req, res) => {
+// ============ PINGER ============
+app.post('/api/ping/start', apiLimiter, (req, res) => {
     const { target, sessionId } = req.body;
     
     if (!target || !sessionId) {
-        res.json({ success: false, message: 'Invalid parameters' });
-        return;
+        return res.json({ success: false, message: 'Invalid parameters' });
     }
 
-    // Stop existing ping for this session
     if (activePings.has(sessionId)) {
         clearInterval(activePings.get(sessionId));
     }
 
-    // Resolve hostname first
     const resolveTarget = (host) => {
         return new Promise((resolve) => {
             if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
@@ -509,7 +655,6 @@ app.post('/api/ping/start', (req, res) => {
         const startTime = Date.now();
         const socket = new net.Socket();
         socket.setTimeout(2000);
-
         let responded = false;
 
         socket.on('connect', () => {
@@ -525,7 +670,6 @@ app.post('/api/ping/start', (req, res) => {
             if (!responded) {
                 responded = true;
                 socket.destroy();
-                // Timeout on port 80, try port 443
                 tryPort443();
             }
         });
@@ -534,7 +678,6 @@ app.post('/api/ping/start', (req, res) => {
             if (!responded) {
                 responded = true;
                 socket.destroy();
-                // Connection refused means host is online but port closed
                 if (err.code === 'ECONNREFUSED') {
                     const time = Date.now() - startTime;
                     io.to(sessionId).emit('pingResult', { target, online: true, time, ttl: 64 });
@@ -589,7 +732,7 @@ app.post('/api/ping/start', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/ping/stop', (req, res) => {
+app.post('/api/ping/stop', apiLimiter, (req, res) => {
     const { sessionId } = req.body;
     
     if (activePings.has(sessionId)) {
@@ -600,84 +743,74 @@ app.post('/api/ping/stop', (req, res) => {
     res.json({ success: true });
 });
 
+
 // ============ CHAT PINNED MESSAGES ============
 let pinnedMessage = null;
 let pinnedTimeout = null;
 
-app.post('/api/chat/pin', (req, res) => {
+app.post('/api/chat/pin', apiLimiter, (req, res) => {
     const { username, message, duration } = req.body;
     const user = registeredUsers[username];
     
     if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
 
-    // Clear existing pin timeout
-    if (pinnedTimeout) {
-        clearTimeout(pinnedTimeout);
-    }
+    if (pinnedTimeout) clearTimeout(pinnedTimeout);
 
     pinnedMessage = {
         text: message,
         pinnedBy: username,
         pinnedAt: new Date().toISOString(),
-        duration: duration
+        duration
     };
 
-    // Auto-unpin after duration (if not permanent)
     if (duration > 0) {
         pinnedTimeout = setTimeout(() => {
             pinnedMessage = null;
             io.emit('pinnedMessage', null);
-        }, duration * 60 * 1000); // duration in minutes
+        }, duration * 60 * 1000);
     }
 
     io.emit('pinnedMessage', pinnedMessage);
     res.json({ success: true });
 });
 
-app.post('/api/chat/unpin', (req, res) => {
+app.post('/api/chat/unpin', apiLimiter, (req, res) => {
     const { username } = req.body;
     const user = registeredUsers[username];
     
     if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
 
-    if (pinnedTimeout) {
-        clearTimeout(pinnedTimeout);
-    }
+    if (pinnedTimeout) clearTimeout(pinnedTimeout);
     pinnedMessage = null;
     io.emit('pinnedMessage', null);
     res.json({ success: true });
 });
 
-app.get('/api/chat/pinned', (req, res) => {
+app.get('/api/chat/pinned', apiLimiter, (req, res) => {
     res.json(pinnedMessage);
 });
 
-// ============ VOICE SOUNDS / SOUNDBOARD ============
-app.get('/api/voice/sounds', (req, res) => {
+// ============ VOICE SOUNDS ============
+app.get('/api/voice/sounds', apiLimiter, (req, res) => {
     res.json(voiceSounds);
 });
 
-// Add sound to soundboard
-app.post('/api/voice/soundboard/add', (req, res) => {
+app.post('/api/voice/soundboard/add', apiLimiter, (req, res) => {
     const { username, soundData, soundName } = req.body;
     const user = registeredUsers[username];
     
     if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
     if (!voiceSounds.soundboard) voiceSounds.soundboard = [];
     
     if (voiceSounds.soundboard.length >= 20) {
-        res.json({ success: false, message: 'Max 20 sounds allowed' });
-        return;
+        return res.json({ success: false, message: 'Max 20 sounds allowed' });
     }
     
     const id = Date.now().toString(36);
@@ -687,15 +820,13 @@ app.post('/api/voice/soundboard/add', (req, res) => {
     res.json({ success: true, id });
 });
 
-// Remove sound from soundboard
-app.delete('/api/voice/soundboard/:id', (req, res) => {
+app.delete('/api/voice/soundboard/:id', apiLimiter, (req, res) => {
     const { id } = req.params;
     const { username } = req.body;
     const user = registeredUsers[username];
     
     if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
     if (!voiceSounds.soundboard) voiceSounds.soundboard = [];
@@ -705,19 +836,16 @@ app.delete('/api/voice/soundboard/:id', (req, res) => {
     res.json({ success: true });
 });
 
-// Set system sounds (join/leave)
-app.post('/api/voice/sounds/system', (req, res) => {
+app.post('/api/voice/sounds/system', apiLimiter, (req, res) => {
     const { username, soundType, soundData, soundName } = req.body;
     const user = registeredUsers[username];
     
     if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
-        res.json({ success: false, message: 'No permission' });
-        return;
+        return res.json({ success: false, message: 'No permission' });
     }
     
     if (!['join', 'leave'].includes(soundType)) {
-        res.json({ success: false, message: 'Invalid sound type' });
-        return;
+        return res.json({ success: false, message: 'Invalid sound type' });
     }
     
     if (!voiceSounds.system) voiceSounds.system = {};
@@ -727,14 +855,42 @@ app.post('/api/voice/sounds/system', (req, res) => {
     res.json({ success: true });
 });
 
-// Socket.io for chat
-const voiceRooms = new Map(); // Store voice chat participants
+// ============ SOCKET.IO CON PROTECCIÓN ============
+const voiceRooms = new Map();
+
+// Rate limiting para mensajes de socket
+const socketMessageCount = new Map();
+const SOCKET_MSG_LIMIT = 30; // 30 mensajes por minuto
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
+    
+    // Inicializar contador de mensajes
+    socketMessageCount.set(socket.id, { count: 0, resetTime: Date.now() + 60000 });
+
+    // Función para verificar rate limit de socket
+    const checkSocketRateLimit = () => {
+        const data = socketMessageCount.get(socket.id);
+        if (!data) return true;
+        
+        const now = Date.now();
+        if (now > data.resetTime) {
+            data.count = 0;
+            data.resetTime = now + 60000;
+        }
+        
+        data.count++;
+        if (data.count > SOCKET_MSG_LIMIT) {
+            socket.emit('error', 'Demasiados mensajes. Espera un momento.');
+            return false;
+        }
+        return true;
+    };
 
     socket.on('join', (username) => {
-        // Remove any existing connection with same username (prevent duplicates)
+        if (!checkSocketRateLimit()) return;
+        if (!username || username.length > 20) return;
+        
         for (const [id, name] of onlineUsers.entries()) {
             if (name === username && id !== socket.id) {
                 onlineUsers.delete(id);
@@ -748,14 +904,13 @@ io.on('connection', (socket) => {
             time: new Date().toLocaleTimeString()
         });
         
-        // Send current pinned message to new user
         if (pinnedMessage) {
             socket.emit('pinnedMessage', pinnedMessage);
         }
     });
 
-    // Join ping session room
     socket.on('joinPingSession', (sessionId) => {
+        if (!checkSocketRateLimit()) return;
         socket.join(sessionId);
     });
 
@@ -763,15 +918,17 @@ io.on('connection', (socket) => {
         socket.leave(sessionId);
     });
 
-    // ============ VOICE CHAT SIGNALING ============
+
+    // ============ VOICE CHAT ============
     socket.on('voiceJoin', (data) => {
+        if (!checkSocketRateLimit()) return;
+        
         const username = typeof data === 'string' ? data : data.username;
         const avatar = typeof data === 'object' ? data.avatar : '';
         
         socket.voiceUsername = username;
         socket.join('voice-room');
         
-        // Get current participants
         const participants = [];
         for (const [id, pdata] of voiceRooms.entries()) {
             if (id !== socket.id) {
@@ -781,21 +938,16 @@ io.on('connection', (socket) => {
         
         voiceRooms.set(socket.id, { username, avatar, muted: false, speaking: false });
         
-        // Notify others with sound event
         socket.to('voice-room').emit('voiceUserJoined', { id: socket.id, username, avatar });
         socket.to('voice-room').emit('voicePlaySound', 'join');
-        
-        // Send current participants to new user
         socket.emit('voiceParticipants', participants);
         
-        // Broadcast updated list
         io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, d]) => ({
             id, username: d.username, avatar: d.avatar, muted: d.muted, speaking: d.speaking
         })));
     });
 
     socket.on('voiceLeave', () => {
-        const userData = voiceRooms.get(socket.id);
         socket.leave('voice-room');
         voiceRooms.delete(socket.id);
         io.to('voice-room').emit('voiceUserLeft', socket.id);
@@ -806,10 +958,12 @@ io.on('connection', (socket) => {
     });
 
     socket.on('voiceOffer', ({ to, offer }) => {
+        if (!checkSocketRateLimit()) return;
         io.to(to).emit('voiceOffer', { from: socket.id, offer });
     });
 
     socket.on('voiceAnswer', ({ to, answer }) => {
+        if (!checkSocketRateLimit()) return;
         io.to(to).emit('voiceAnswer', { from: socket.id, answer });
     });
 
@@ -837,31 +991,36 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Soundboard - play sound to all in voice
     socket.on('voicePlaySoundboard', (soundId) => {
+        if (!checkSocketRateLimit()) return;
         const sound = voiceSounds.soundboard?.find(s => s.id === soundId);
         if (sound) {
             io.to('voice-room').emit('voiceSoundboardPlay', { id: soundId, data: sound.data });
         }
     });
-    // ============ END VOICE CHAT ============
 
+    // ============ CHAT MESSAGES ============
     socket.on('chatMessage', (msg) => {
+        if (!checkSocketRateLimit()) return;
+        
         const username = onlineUsers.get(socket.id) || 'Anonymous';
         
-        // Handle different message types
+        // Validar mensaje
         if (msg.type === 'image') {
+            if (!msg.content || msg.content.length > 5000000) return; // Max 5MB
             io.emit('message', {
                 type: 'image',
-                username: username,
+                username,
                 content: msg.content,
                 time: new Date().toLocaleTimeString()
             });
         } else {
+            const text = msg.content || msg;
+            if (!text || text.length > 2000) return; // Max 2000 chars
             io.emit('message', {
                 type: 'text',
-                username: username,
-                text: msg.content || msg,
+                username,
+                text,
                 time: new Date().toLocaleTimeString()
             });
         }
@@ -871,7 +1030,6 @@ io.on('connection', (socket) => {
         const username = onlineUsers.get(socket.id);
         if (username) {
             onlineUsers.delete(socket.id);
-            // Only show leave message if user is not connected elsewhere
             const stillOnline = Array.from(onlineUsers.values()).includes(username);
             if (!stillOnline) {
                 io.emit('message', {
@@ -883,7 +1041,6 @@ io.on('connection', (socket) => {
             io.emit('userList', Array.from(new Set(onlineUsers.values())));
         }
         
-        // Clean up voice chat
         if (voiceRooms.has(socket.id)) {
             voiceRooms.delete(socket.id);
             io.to('voice-room').emit('voiceUserLeft', socket.id);
@@ -892,11 +1049,41 @@ io.on('connection', (socket) => {
             })));
         }
         
+        // Limpiar contadores
+        socketMessageCount.delete(socket.id);
+        
+        // Reducir contador de conexiones por IP
+        if (socket.clientIP) {
+            const count = socketConnections.get(socket.clientIP) || 0;
+            if (count > 1) {
+                socketConnections.set(socket.clientIP, count - 1);
+            } else {
+                socketConnections.delete(socket.clientIP);
+            }
+        }
+        
         console.log('User disconnected:', socket.id);
     });
 });
 
+// ============ ENDPOINT DE ESTADO ============
+app.get('/api/status', (req, res) => {
+    res.json({
+        status: 'online',
+        users: onlineUsers.size,
+        blockedIPs: blockedIPs.size,
+        uptime: process.uptime()
+    });
+});
+
+// ============ INICIAR SERVIDOR ============
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Nexus Server running on port ${PORT}`);
+    console.log(`🛡️ Nexus Server con protección anti-DDoS corriendo en puerto ${PORT}`);
+    console.log(`📊 Rate limits activos:`);
+    console.log(`   - General: 100 req/min`);
+    console.log(`   - Auth: 10 intentos/15min`);
+    console.log(`   - API: 60 req/min`);
+    console.log(`   - Socket: 30 msg/min`);
+    console.log(`   - Max sockets por IP: ${MAX_SOCKETS_PER_IP}`);
 });
