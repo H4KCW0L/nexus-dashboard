@@ -141,6 +141,8 @@ class NexusDashboard {
     constructor() {
         this.currentTool = 'ip-lookup';
         this.isPinging = false;
+        this.pingSessionId = null;
+        this.socket = null;
         this.init();
     }
 
@@ -162,13 +164,21 @@ class NexusDashboard {
     }
 
     stopAllProcesses() {
-        this.isPinging = false;
-        if (this.pingInterval) clearInterval(this.pingInterval);
+        // Stop pinger
+        if (this.isPinging && this.pingSessionId) {
+            fetch('/api/ping/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: this.pingSessionId })
+            });
+            this.isPinging = false;
+        }
         
         // Disconnect chat socket when leaving chat
         if (this.socket && this.currentTool === 'chat') {
             this.socket.off('message');
             this.socket.off('userList');
+            this.socket.off('pinnedMessage');
             this.socket.disconnect();
             this.socket = null;
         }
@@ -183,6 +193,7 @@ class NexusDashboard {
             'phone-lookup': this.getPhoneLookupHTML(),
             'whois': this.getWhoisHTML(),
             'ip-pinger': this.getIPPingerHTML(),
+            'port-scanner': this.getPortScannerHTML(),
             'ip-logger': this.getIPLoggerHTML(),
             'chat': this.getChatHTML(),
             'members': this.getMembersHTML(),
@@ -250,20 +261,63 @@ class NexusDashboard {
                 <h2>IP Pinger</h2>
                 <div class="tool-controls">
                     <input type="text" class="tool-input" id="ping-input" placeholder="Enter IP or domain">
-                    <input type="number" class="tool-input" id="ping-count" placeholder="Count" value="4" style="width: 80px;">
-                    <button class="btn-primary" id="start-ping">Ping</button>
+                    <button class="btn-primary" id="start-ping">Start Ping</button>
                     <button class="btn-secondary" id="stop-ping">Stop</button>
                     <button class="btn-secondary" id="clear-ping">Clear</button>
                 </div>
+                <div class="ping-status" id="ping-status">
+                    <div class="ping-indicator offline" id="ping-indicator"></div>
+                    <span id="ping-status-text">Not pinging</span>
+                </div>
                 <div class="output-area">
-                    <div class="output-header">Ping Results</div>
-                    <div class="output-content" id="ping-output">Enter an IP or domain to ping...</div>
+                    <div class="output-header">Ping Results (Infinite Mode)</div>
+                    <div class="output-content" id="ping-output">Enter an IP or domain to start pinging...</div>
+                </div>
+                <div class="ping-stats" id="ping-stats" style="display:none;">
+                    <div class="stat-item"><span>Sent:</span><span id="stat-sent">0</span></div>
+                    <div class="stat-item"><span>Received:</span><span id="stat-recv">0</span></div>
+                    <div class="stat-item"><span>Lost:</span><span id="stat-lost">0</span></div>
+                    <div class="stat-item"><span>Avg:</span><span id="stat-avg">0ms</span></div>
+                </div>
+            </div>
+        `;
+    }
+
+    getPortScannerHTML() {
+        return `
+            <div class="tool-panel">
+                <h2>Port Scanner</h2>
+                <div class="tool-controls">
+                    <input type="text" class="tool-input" id="scan-target" placeholder="Enter IP or domain">
+                    <select class="tool-select" id="scan-preset">
+                        <option value="common">Common Ports (Top 20)</option>
+                        <option value="web">Web Ports</option>
+                        <option value="database">Database Ports</option>
+                        <option value="all">All Common (1-1024)</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div class="tool-controls custom-ports" id="custom-ports" style="display:none;">
+                    <input type="text" class="tool-input" id="port-range" placeholder="Ports: 80,443,8080 or 1-100">
+                </div>
+                <div class="tool-controls">
+                    <button class="btn-primary" id="start-scan">Scan</button>
+                    <button class="btn-secondary" id="clear-scan">Clear</button>
+                </div>
+                <div class="scan-progress" id="scan-progress" style="display:none;">
+                    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                    <span id="progress-text">Scanning...</span>
+                </div>
+                <div class="output-area">
+                    <div class="output-header">Scan Results</div>
+                    <div class="output-content" id="scan-output">Enter a target to scan...</div>
                 </div>
             </div>
         `;
     }
 
     getChatHTML() {
+        const isAdmin = currentUser && (currentUser.role === 'owner' || currentUser.role === 'admin');
         return `
             <div class="tool-panel chat-panel">
                 <h2>Nexus Chat</h2>
@@ -273,12 +327,33 @@ class NexusDashboard {
                         <div class="chat-users-list" id="chat-users"></div>
                     </div>
                     <div class="chat-main">
+                        <div class="chat-pinned" id="chat-pinned" style="display:none;">
+                            <div class="pinned-icon">PIN</div>
+                            <div class="pinned-content" id="pinned-content"></div>
+                            ${isAdmin ? '<button class="pinned-close" id="unpin-btn">X</button>' : ''}
+                        </div>
                         <div class="chat-messages" id="chat-messages"></div>
                         <div class="chat-input-area">
                             <input type="file" id="chat-image" accept="image/*" style="display:none;">
-                            <button class="btn-secondary" id="chat-image-btn" title="Send Image">IMG</button>
+                            <button class="btn-icon" id="chat-image-btn" title="Send Image">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                    <polyline points="21 15 16 10 5 21"></polyline>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" id="emoji-btn" title="Emojis">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                    <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                    <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                </svg>
+                            </button>
+                            <div class="emoji-picker" id="emoji-picker" style="display:none;"></div>
                             <input type="text" class="chat-input" id="chat-input" placeholder="Type a message...">
                             <button class="btn-primary" id="chat-send">Send</button>
+                            ${isAdmin ? '<button class="btn-secondary" id="pin-msg-btn" title="Pin Message">PIN</button>' : ''}
                         </div>
                     </div>
                 </div>
@@ -350,10 +425,10 @@ class NexusDashboard {
                 document.getElementById('domain-input').onkeypress = (e) => { if(e.key === 'Enter') this.lookupWhois(); };
                 break;
             case 'ip-pinger':
-                document.getElementById('start-ping').onclick = () => this.startPing();
-                document.getElementById('stop-ping').onclick = () => this.stopPing();
-                document.getElementById('clear-ping').onclick = () => this.clearOutput('ping-output');
-                document.getElementById('ping-input').onkeypress = (e) => { if(e.key === 'Enter') this.startPing(); };
+                this.initPinger();
+                break;
+            case 'port-scanner':
+                this.initPortScanner();
                 break;
             case 'ip-logger':
                 this.initIPLogger();
@@ -615,6 +690,7 @@ class NexusDashboard {
         if (this.socket) {
             this.socket.off('message');
             this.socket.off('userList');
+            this.socket.off('pinnedMessage');
             this.socket.disconnect();
             this.socket = null;
         }
@@ -626,6 +702,7 @@ class NexusDashboard {
 
         this.socket.on('message', (msg) => this.addChatMessage(msg));
         this.socket.on('userList', (users) => this.updateUserList(users));
+        this.socket.on('pinnedMessage', (pinned) => this.updatePinnedMessage(pinned));
 
         document.getElementById('chat-send').onclick = () => this.sendChatMessage();
         document.getElementById('chat-input').onkeypress = (e) => {
@@ -636,6 +713,152 @@ class NexusDashboard {
         const imageInput = document.getElementById('chat-image');
         document.getElementById('chat-image-btn').onclick = () => imageInput.click();
         imageInput.onchange = (e) => this.sendChatImage(e.target.files[0]);
+
+        // Emoji picker
+        this.initEmojiPicker();
+
+        // Pin message (admin only)
+        const pinBtn = document.getElementById('pin-msg-btn');
+        if (pinBtn) {
+            pinBtn.onclick = () => this.showPinDialog();
+        }
+
+        // Unpin button
+        const unpinBtn = document.getElementById('unpin-btn');
+        if (unpinBtn) {
+            unpinBtn.onclick = () => this.unpinMessage();
+        }
+
+        // Load current pinned message
+        this.loadPinnedMessage();
+    }
+
+    initEmojiPicker() {
+        const emojiBtn = document.getElementById('emoji-btn');
+        const emojiPicker = document.getElementById('emoji-picker');
+        
+        const emojis = [
+            '😀', '😂', '😍', '🥰', '😎', '🤔', '😢', '😡', '🤯', '🥳',
+            '👍', '👎', '👏', '🙌', '🤝', '💪', '🔥', '💯', '❤️', '💔',
+            '⭐', '✨', '🎉', '🎊', '🏆', '💰', '💎', '🚀', '💻', '🎮',
+            '☠️', '💀', '👻', '🤖', '👽', '🔒', '🔓', '⚠️', '🚫', '✅'
+        ];
+        
+        emojiPicker.innerHTML = emojis.map(e => `<span class="emoji-item">${e}</span>`).join('');
+        
+        emojiBtn.onclick = (e) => {
+            e.stopPropagation();
+            emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'grid' : 'none';
+        };
+        
+        emojiPicker.querySelectorAll('.emoji-item').forEach(item => {
+            item.onclick = () => {
+                const input = document.getElementById('chat-input');
+                input.value += item.textContent;
+                input.focus();
+                emojiPicker.style.display = 'none';
+            };
+        });
+        
+        document.addEventListener('click', () => {
+            emojiPicker.style.display = 'none';
+        });
+    }
+
+    async loadPinnedMessage() {
+        try {
+            const response = await fetch('/api/chat/pinned');
+            const pinned = await response.json();
+            this.updatePinnedMessage(pinned);
+        } catch (e) {}
+    }
+
+    updatePinnedMessage(pinned) {
+        const pinnedDiv = document.getElementById('chat-pinned');
+        const pinnedContent = document.getElementById('pinned-content');
+        
+        if (pinned && pinned.text) {
+            pinnedContent.textContent = pinned.text;
+            pinnedDiv.style.display = 'flex';
+        } else {
+            pinnedDiv.style.display = 'none';
+        }
+    }
+
+    showPinDialog() {
+        const existing = document.querySelector('.pin-dialog');
+        if (existing) existing.remove();
+
+        const dialog = document.createElement('div');
+        dialog.className = 'pin-dialog';
+        dialog.innerHTML = `
+            <div class="pin-dialog-box">
+                <h3>PIN MESSAGE</h3>
+                <textarea id="pin-message-text" placeholder="Enter message to pin..." rows="3"></textarea>
+                <div class="pin-duration">
+                    <label>Duration:</label>
+                    <select id="pin-duration">
+                        <option value="5">5 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="60">1 hour</option>
+                        <option value="1440">24 hours</option>
+                        <option value="0">Permanent</option>
+                    </select>
+                </div>
+                <div class="pin-buttons">
+                    <button class="btn-primary" id="confirm-pin">Pin</button>
+                    <button class="btn-secondary" id="cancel-pin">Cancel</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(dialog);
+        
+        document.getElementById('confirm-pin').onclick = () => this.pinMessage(dialog);
+        document.getElementById('cancel-pin').onclick = () => dialog.remove();
+        dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+    }
+
+    async pinMessage(dialog) {
+        const message = document.getElementById('pin-message-text').value.trim();
+        const duration = parseInt(document.getElementById('pin-duration').value);
+        
+        if (!message) {
+            alert('Please enter a message');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/chat/pin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    message,
+                    duration
+                })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                dialog.remove();
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error pinning message');
+        }
+    }
+
+    async unpinMessage() {
+        try {
+            await fetch('/api/chat/unpin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username })
+            });
+        } catch (e) {}
     }
 
     sendChatMessage() {
@@ -821,48 +1044,246 @@ Region:        ${countryData.region}
     }
 
     // PINGER
-    startPing() {
-        const target = document.getElementById('ping-input').value.trim();
-        const count = parseInt(document.getElementById('ping-count').value) || 4;
-        const output = document.getElementById('ping-output');
-        
-        if (!target) { output.textContent = '[ERROR] Please enter an IP or domain.'; return; }
-
-        this.isPinging = true;
-        let pingNum = 0;
-        let times = [];
-        
-        output.innerHTML = `Pinging ${target} with 32 bytes of data:\n\n`;
-        
-        this.pingInterval = setInterval(() => {
-            if (this.isPinging && pingNum < count) {
-                const time = Math.floor(Math.random() * 80) + 5;
-                const ttl = Math.floor(Math.random() * 64) + 50;
-                times.push(time);
-                output.innerHTML += `<span style="color: #00ff00;">Reply from ${target}: bytes=32 time=${time}ms TTL=${ttl} - ON BY NEXUS</span>\n`;
-                output.scrollTop = output.scrollHeight;
-                pingNum++;
-            } else {
-                clearInterval(this.pingInterval);
-                this.isPinging = false;
-                
-                if (times.length > 0) {
-                    const min = Math.min(...times);
-                    const max = Math.max(...times);
-                    const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
-                    output.innerHTML += `\nPing statistics for ${target}:\n`;
-                    output.innerHTML += `    Packets: Sent = ${pingNum}, Received = ${pingNum}, Lost = 0\n`;
-                    output.innerHTML += `    Min = ${min}ms, Max = ${max}ms, Avg = ${avg}ms\n`;
-                }
-                output.innerHTML += `\n<span style="color: #00ff00; font-weight: bold;">TARGET IS ONLINE - ON BY NEXUS</span>`;
-            }
-        }, 1000);
+    initPinger() {
+        document.getElementById('start-ping').onclick = () => this.startRealPing();
+        document.getElementById('stop-ping').onclick = () => this.stopRealPing();
+        document.getElementById('clear-ping').onclick = () => {
+            document.getElementById('ping-output').textContent = 'Enter an IP or domain to start pinging...';
+            document.getElementById('ping-stats').style.display = 'none';
+        };
+        document.getElementById('ping-input').onkeypress = (e) => { 
+            if(e.key === 'Enter') this.startRealPing(); 
+        };
     }
 
-    stopPing() {
+    async startRealPing() {
+        const target = document.getElementById('ping-input').value.trim();
+        const output = document.getElementById('ping-output');
+        const indicator = document.getElementById('ping-indicator');
+        const statusText = document.getElementById('ping-status-text');
+        const statsDiv = document.getElementById('ping-stats');
+        
+        if (!target) { 
+            output.textContent = '[ERROR] Please enter an IP or domain.'; 
+            return; 
+        }
+
+        if (this.isPinging) {
+            await this.stopRealPing();
+        }
+
+        this.pingSessionId = 'ping_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        this.isPinging = true;
+        this.pingStats = { sent: 0, recv: 0, lost: 0, times: [] };
+        
+        output.innerHTML = `Pinging ${target} (infinite mode)...\n\n`;
+        statsDiv.style.display = 'flex';
+        statusText.textContent = 'Connecting...';
+
+        // Connect socket for ping results
+        if (!this.socket) {
+            this.socket = io();
+        }
+        
+        this.socket.emit('joinPingSession', this.pingSessionId);
+        
+        this.socket.on('pingResult', (result) => {
+            if (!this.isPinging) return;
+            
+            this.pingStats.sent++;
+            
+            if (result.online) {
+                this.pingStats.recv++;
+                this.pingStats.times.push(result.time);
+                indicator.className = 'ping-indicator online';
+                statusText.textContent = `${target} is ONLINE`;
+                output.innerHTML += `<span class="ping-online">Reply from ${target}: time=${result.time}ms TTL=${result.ttl || '?'}</span>\n`;
+            } else {
+                this.pingStats.lost++;
+                indicator.className = 'ping-indicator offline';
+                statusText.textContent = `${target} is OFFLINE`;
+                output.innerHTML += `<span class="ping-offline">Request timed out.</span>\n`;
+            }
+            
+            // Update stats
+            document.getElementById('stat-sent').textContent = this.pingStats.sent;
+            document.getElementById('stat-recv').textContent = this.pingStats.recv;
+            document.getElementById('stat-lost').textContent = this.pingStats.lost;
+            if (this.pingStats.times.length > 0) {
+                const avg = Math.round(this.pingStats.times.reduce((a,b) => a+b, 0) / this.pingStats.times.length);
+                document.getElementById('stat-avg').textContent = avg + 'ms';
+            }
+            
+            output.scrollTop = output.scrollHeight;
+        });
+
+        // Start ping on server
+        try {
+            await fetch('/api/ping/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target, sessionId: this.pingSessionId })
+            });
+        } catch (e) {
+            output.textContent = '[ERROR] Could not start ping. Is the server running?';
+            this.isPinging = false;
+        }
+    }
+
+    async stopRealPing() {
+        if (!this.isPinging) return;
+        
         this.isPinging = false;
-        clearInterval(this.pingInterval);
-        document.getElementById('ping-output').innerHTML += '\n<span style="color: #ff4444;">[*] Ping stopped.</span>';
+        document.getElementById('ping-indicator').className = 'ping-indicator offline';
+        document.getElementById('ping-status-text').textContent = 'Stopped';
+        document.getElementById('ping-output').innerHTML += '\n<span class="ping-stopped">[Ping stopped]</span>';
+        
+        if (this.pingSessionId) {
+            if (this.socket) {
+                this.socket.off('pingResult');
+                this.socket.emit('leavePingSession', this.pingSessionId);
+            }
+            
+            await fetch('/api/ping/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: this.pingSessionId })
+            });
+            this.pingSessionId = null;
+        }
+    }
+
+    // PORT SCANNER
+    initPortScanner() {
+        const presetSelect = document.getElementById('scan-preset');
+        const customDiv = document.getElementById('custom-ports');
+        
+        presetSelect.onchange = () => {
+            customDiv.style.display = presetSelect.value === 'custom' ? 'flex' : 'none';
+        };
+        
+        document.getElementById('start-scan').onclick = () => this.startPortScan();
+        document.getElementById('clear-scan').onclick = () => {
+            document.getElementById('scan-output').textContent = 'Enter a target to scan...';
+            document.getElementById('scan-progress').style.display = 'none';
+        };
+        document.getElementById('scan-target').onkeypress = (e) => {
+            if(e.key === 'Enter') this.startPortScan();
+        };
+    }
+
+    async startPortScan() {
+        const target = document.getElementById('scan-target').value.trim();
+        const preset = document.getElementById('scan-preset').value;
+        const output = document.getElementById('scan-output');
+        const progressDiv = document.getElementById('scan-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+        
+        if (!target) {
+            output.textContent = '[ERROR] Please enter a target IP or domain.';
+            return;
+        }
+
+        let ports = [];
+        switch(preset) {
+            case 'common':
+                ports = [21, 22, 23, 25, 53, 80, 110, 119, 123, 143, 161, 194, 443, 445, 993, 995, 3306, 3389, 5432, 8080];
+                break;
+            case 'web':
+                ports = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000];
+                break;
+            case 'database':
+                ports = [1433, 1521, 3306, 5432, 6379, 27017, 5984, 9200];
+                break;
+            case 'all':
+                for (let i = 1; i <= 1024; i++) ports.push(i);
+                break;
+            case 'custom':
+                const rangeInput = document.getElementById('port-range').value.trim();
+                if (!rangeInput) {
+                    output.textContent = '[ERROR] Please enter port range.';
+                    return;
+                }
+                ports = this.parsePortRange(rangeInput);
+                if (ports.length === 0) {
+                    output.textContent = '[ERROR] Invalid port range format.';
+                    return;
+                }
+                break;
+        }
+
+        output.innerHTML = `Scanning ${target} (${ports.length} ports)...\n\n`;
+        progressDiv.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Scanning...';
+
+        try {
+            const response = await fetch('/api/portscan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target, ports })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Complete';
+                
+                const openPorts = data.results.filter(r => r.status === 'open');
+                const closedPorts = data.results.filter(r => r.status === 'closed');
+                const filteredPorts = data.results.filter(r => r.status === 'filtered');
+                
+                output.innerHTML = `Scan results for ${data.target}:\n`;
+                output.innerHTML += `═══════════════════════════════════════\n\n`;
+                
+                if (openPorts.length > 0) {
+                    output.innerHTML += `<span class="port-open">OPEN PORTS (${openPorts.length}):</span>\n`;
+                    openPorts.forEach(p => {
+                        output.innerHTML += `<span class="port-open">  ${p.port}/tcp    open    ${p.service}</span>\n`;
+                    });
+                    output.innerHTML += '\n';
+                }
+                
+                if (filteredPorts.length > 0) {
+                    output.innerHTML += `<span class="port-filtered">FILTERED PORTS (${filteredPorts.length}):</span>\n`;
+                    filteredPorts.forEach(p => {
+                        output.innerHTML += `<span class="port-filtered">  ${p.port}/tcp    filtered    ${p.service}</span>\n`;
+                    });
+                    output.innerHTML += '\n';
+                }
+                
+                output.innerHTML += `\nSummary: ${openPorts.length} open, ${filteredPorts.length} filtered, ${closedPorts.length} closed\n`;
+                output.innerHTML += `<span style="color: #ff4444; font-weight: bold;">SCANNED BY NEXUS</span>`;
+            } else {
+                output.textContent = `[ERROR] ${data.message}`;
+                progressDiv.style.display = 'none';
+            }
+        } catch (e) {
+            output.textContent = '[ERROR] Could not connect to server.';
+            progressDiv.style.display = 'none';
+        }
+    }
+
+    parsePortRange(input) {
+        const ports = [];
+        const parts = input.split(',');
+        
+        for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed.includes('-')) {
+                const [start, end] = trimmed.split('-').map(n => parseInt(n.trim()));
+                if (!isNaN(start) && !isNaN(end) && start <= end && start > 0 && end <= 65535) {
+                    for (let i = start; i <= end; i++) ports.push(i);
+                }
+            } else {
+                const port = parseInt(trimmed);
+                if (!isNaN(port) && port > 0 && port <= 65535) ports.push(port);
+            }
+        }
+        
+        return [...new Set(ports)].slice(0, 1000); // Max 1000 ports
     }
 
     clearOutput(outputId) {

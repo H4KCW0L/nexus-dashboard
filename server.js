@@ -2,10 +2,16 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const fs = require('fs');
+const net = require('net');
+const dns = require('dns');
+const { exec } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Store active ping sessions
+const activePings = new Map();
 
 // Middleware
 app.use(express.static(__dirname));
@@ -380,6 +386,187 @@ app.get('/t/:trackId', async (req, res) => {
 });
 // ============ END IP LOGGER ============
 
+// ============ PORT SCANNER ============
+app.post('/api/portscan', async (req, res) => {
+    const { target, ports } = req.body;
+    
+    if (!target || !ports || !Array.isArray(ports)) {
+        res.json({ success: false, message: 'Invalid parameters' });
+        return;
+    }
+
+    // Resolve hostname to IP if needed
+    let ip = target;
+    try {
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(target)) {
+            ip = await new Promise((resolve, reject) => {
+                dns.lookup(target, (err, address) => {
+                    if (err) reject(err);
+                    else resolve(address);
+                });
+            });
+        }
+    } catch (e) {
+        res.json({ success: false, message: 'Could not resolve hostname' });
+        return;
+    }
+
+    const results = [];
+    const scanPromises = ports.map(port => {
+        return new Promise((resolve) => {
+            const socket = new net.Socket();
+            socket.setTimeout(2000);
+
+            socket.on('connect', () => {
+                results.push({ port, status: 'open', service: getServiceName(port) });
+                socket.destroy();
+                resolve();
+            });
+
+            socket.on('timeout', () => {
+                results.push({ port, status: 'filtered', service: getServiceName(port) });
+                socket.destroy();
+                resolve();
+            });
+
+            socket.on('error', () => {
+                results.push({ port, status: 'closed', service: getServiceName(port) });
+                socket.destroy();
+                resolve();
+            });
+
+            socket.connect(port, ip);
+        });
+    });
+
+    await Promise.all(scanPromises);
+    results.sort((a, b) => a.port - b.port);
+    res.json({ success: true, target: ip, results });
+});
+
+function getServiceName(port) {
+    const services = {
+        20: 'FTP-DATA', 21: 'FTP', 22: 'SSH', 23: 'TELNET', 25: 'SMTP',
+        53: 'DNS', 80: 'HTTP', 110: 'POP3', 119: 'NNTP', 123: 'NTP',
+        143: 'IMAP', 161: 'SNMP', 194: 'IRC', 443: 'HTTPS', 445: 'SMB',
+        465: 'SMTPS', 587: 'SMTP', 993: 'IMAPS', 995: 'POP3S',
+        1433: 'MSSQL', 1521: 'ORACLE', 3306: 'MYSQL', 3389: 'RDP',
+        5432: 'POSTGRESQL', 5900: 'VNC', 6379: 'REDIS', 8080: 'HTTP-PROXY',
+        8443: 'HTTPS-ALT', 27017: 'MONGODB'
+    };
+    return services[port] || 'UNKNOWN';
+}
+
+// ============ REAL PINGER ============
+app.post('/api/ping/start', (req, res) => {
+    const { target, sessionId } = req.body;
+    
+    if (!target || !sessionId) {
+        res.json({ success: false, message: 'Invalid parameters' });
+        return;
+    }
+
+    // Stop existing ping for this session
+    if (activePings.has(sessionId)) {
+        clearInterval(activePings.get(sessionId));
+    }
+
+    const isWindows = process.platform === 'win32';
+    const pingCmd = isWindows ? `ping -n 1 -w 2000 ${target}` : `ping -c 1 -W 2 ${target}`;
+
+    const pingInterval = setInterval(() => {
+        exec(pingCmd, (error, stdout) => {
+            let result = { target, online: false, time: null, ttl: null };
+            
+            if (!error && stdout) {
+                // Parse ping output
+                const timeMatch = stdout.match(/time[=<](\d+)/i);
+                const ttlMatch = stdout.match(/ttl[=](\d+)/i);
+                
+                if (timeMatch) {
+                    result.online = true;
+                    result.time = parseInt(timeMatch[1]);
+                    result.ttl = ttlMatch ? parseInt(ttlMatch[1]) : null;
+                }
+            }
+            
+            io.to(sessionId).emit('pingResult', result);
+        });
+    }, 1000);
+
+    activePings.set(sessionId, pingInterval);
+    res.json({ success: true });
+});
+
+app.post('/api/ping/stop', (req, res) => {
+    const { sessionId } = req.body;
+    
+    if (activePings.has(sessionId)) {
+        clearInterval(activePings.get(sessionId));
+        activePings.delete(sessionId);
+    }
+    
+    res.json({ success: true });
+});
+
+// ============ CHAT PINNED MESSAGES ============
+let pinnedMessage = null;
+let pinnedTimeout = null;
+
+app.post('/api/chat/pin', (req, res) => {
+    const { username, message, duration } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+
+    // Clear existing pin timeout
+    if (pinnedTimeout) {
+        clearTimeout(pinnedTimeout);
+    }
+
+    pinnedMessage = {
+        text: message,
+        pinnedBy: username,
+        pinnedAt: new Date().toISOString(),
+        duration: duration
+    };
+
+    // Auto-unpin after duration (if not permanent)
+    if (duration > 0) {
+        pinnedTimeout = setTimeout(() => {
+            pinnedMessage = null;
+            io.emit('pinnedMessage', null);
+        }, duration * 60 * 1000); // duration in minutes
+    }
+
+    io.emit('pinnedMessage', pinnedMessage);
+    res.json({ success: true });
+});
+
+app.post('/api/chat/unpin', (req, res) => {
+    const { username } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+
+    if (pinnedTimeout) {
+        clearTimeout(pinnedTimeout);
+    }
+    pinnedMessage = null;
+    io.emit('pinnedMessage', null);
+    res.json({ success: true });
+});
+
+app.get('/api/chat/pinned', (req, res) => {
+    res.json(pinnedMessage);
+});
+
 // Socket.io for chat
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -398,6 +585,20 @@ io.on('connection', (socket) => {
             text: `${username} joined the chat`,
             time: new Date().toLocaleTimeString()
         });
+        
+        // Send current pinned message to new user
+        if (pinnedMessage) {
+            socket.emit('pinnedMessage', pinnedMessage);
+        }
+    });
+
+    // Join ping session room
+    socket.on('joinPingSession', (sessionId) => {
+        socket.join(sessionId);
+    });
+
+    socket.on('leavePingSession', (sessionId) => {
+        socket.leave(sessionId);
     });
 
     socket.on('chatMessage', (msg) => {
