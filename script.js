@@ -299,13 +299,17 @@ class NexusDashboard {
 
     getProfileHTML() {
         const user = currentUser || { username: 'Guest', role: 'member', bio: '', avatar: '' };
+        const avatarDisplay = user.avatar ? `<img src="${user.avatar}" class="profile-avatar-img">` : user.username.charAt(0).toUpperCase();
         return `
             <div class="tool-panel">
                 <h2>My Profile</h2>
                 <div class="profile-container">
                     <div class="profile-avatar-section">
-                        <div class="profile-avatar" id="profile-avatar">${user.avatar || user.username.charAt(0).toUpperCase()}</div>
-                        <input type="text" class="tool-input" id="avatar-input" placeholder="Avatar URL (optional)">
+                        <div class="profile-avatar" id="profile-avatar">${avatarDisplay}</div>
+                        <input type="file" id="avatar-file" accept="image/*" style="display:none;">
+                        <button class="btn-secondary" id="avatar-upload-btn">Upload Photo</button>
+                        <span style="color:#666;font-size:11px;margin:5px 0;">or</span>
+                        <input type="text" class="tool-input" id="avatar-input" placeholder="Paste image URL" style="font-size:11px;">
                     </div>
                     <div class="profile-info">
                         <div class="profile-field">
@@ -487,6 +491,28 @@ class NexusDashboard {
     // PROFILE
     initProfile() {
         document.getElementById('save-profile').onclick = () => this.saveProfile();
+        
+        // Avatar file upload
+        const avatarFile = document.getElementById('avatar-file');
+        document.getElementById('avatar-upload-btn').onclick = () => avatarFile.click();
+        avatarFile.onchange = (e) => this.uploadAvatar(e.target.files[0]);
+    }
+
+    uploadAvatar(file) {
+        if (!file) return;
+        
+        if (file.size > 1 * 1024 * 1024) {
+            alert('Image too large. Max 1MB.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const base64 = e.target.result;
+            document.getElementById('avatar-input').value = base64;
+            document.getElementById('profile-avatar').innerHTML = `<img src="${base64}" class="profile-avatar-img">`;
+        };
+        reader.readAsDataURL(file);
     }
 
     async saveProfile() {
