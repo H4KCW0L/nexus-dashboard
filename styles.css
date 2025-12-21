@@ -1191,15 +1191,15 @@ body {
 .emoji-picker {
     position: absolute;
     bottom: 60px;
-    left: 80px;
+    left: 40px;
     background: #1a1a1a;
     border: 1px solid #ff4444;
     border-radius: 8px;
     padding: 10px;
     display: grid;
-    grid-template-columns: repeat(10, 1fr);
+    grid-template-columns: repeat(8, 1fr);
     gap: 5px;
-    max-width: 320px;
+    width: 280px;
     z-index: 100;
     box-shadow: 0 5px 20px rgba(0,0,0,0.5);
 }
@@ -1333,4 +1333,144 @@ body {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+}
+
+
+/* Voice Chat Styles */
+.voice-panel {
+    height: 100%;
+}
+
+.voice-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.voice-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+}
+
+.voice-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transition: all 0.3s;
+}
+
+.voice-indicator.connected {
+    background: #00ff00;
+    box-shadow: 0 0 10px #00ff00;
+}
+
+.voice-indicator.disconnected {
+    background: #ff4444;
+}
+
+#voice-status-text {
+    font-size: 14px;
+    color: #fff;
+}
+
+.voice-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.voice-mute {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.voice-mute.muted {
+    background: #ff4444;
+    color: white;
+}
+
+.voice-participants {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.voice-participants-header {
+    padding: 10px 15px;
+    background: #252525;
+    color: #ff4444;
+    font-size: 12px;
+    font-weight: bold;
+    border-bottom: 1px solid #333;
+}
+
+.voice-participants-list {
+    padding: 10px;
+    min-height: 100px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.voice-participant {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #1a1a1a;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+
+.voice-participant.muted {
+    opacity: 0.6;
+}
+
+.voice-participant-icon {
+    width: 30px;
+    height: 30px;
+    background: #00ff00;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: #000;
+}
+
+.voice-participant.muted .voice-participant-icon {
+    background: #ff4444;
+    color: white;
+}
+
+.muted-badge {
+    font-size: 9px;
+    background: #ff4444;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: auto;
+}
+
+.voice-info {
+    padding: 15px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+}
+
+.voice-info p {
+    margin: 5px 0;
+    font-size: 12px;
+    color: #888;
 }

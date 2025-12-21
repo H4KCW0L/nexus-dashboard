@@ -182,6 +182,11 @@ class NexusDashboard {
             this.socket.disconnect();
             this.socket = null;
         }
+
+        // Leave voice chat
+        if (this.currentTool === 'voice-chat') {
+            this.leaveVoiceChat();
+        }
     }
 
     loadToolContent(toolName) {
@@ -196,6 +201,7 @@ class NexusDashboard {
             'port-scanner': this.getPortScannerHTML(),
             'ip-logger': this.getIPLoggerHTML(),
             'chat': this.getChatHTML(),
+            'voice-chat': this.getVoiceChatHTML(),
             'members': this.getMembersHTML(),
             'profile': this.getProfileHTML()
         };
@@ -349,6 +355,40 @@ class NexusDashboard {
         `;
     }
 
+    getVoiceChatHTML() {
+        return `
+            <div class="tool-panel voice-panel">
+                <h2>Voice Chat</h2>
+                <div class="voice-container">
+                    <div class="voice-status" id="voice-status">
+                        <div class="voice-indicator disconnected" id="voice-indicator"></div>
+                        <span id="voice-status-text">Not connected</span>
+                    </div>
+                    <div class="voice-controls">
+                        <button class="btn-primary" id="voice-join">Join Voice</button>
+                        <button class="btn-secondary" id="voice-leave" disabled>Leave</button>
+                        <button class="btn-icon voice-mute" id="voice-mute" disabled title="Mute">
+                            <svg id="mic-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="voice-participants">
+                        <div class="voice-participants-header">In Voice Channel</div>
+                        <div class="voice-participants-list" id="voice-participants"></div>
+                    </div>
+                    <div class="voice-info">
+                        <p>Click "Join Voice" to connect to the voice channel.</p>
+                        <p style="color:#888;font-size:11px;">Requires microphone permission.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     getMembersHTML() {
         return `
             <div class="tool-panel">
@@ -423,6 +463,9 @@ class NexusDashboard {
                 break;
             case 'chat':
                 this.initChat();
+                break;
+            case 'voice-chat':
+                this.initVoiceChat();
                 break;
             case 'members':
                 this.loadMembers();
@@ -1395,5 +1438,210 @@ ISP: ${log.isp || 'Unknown'}
 -------------------------------------------
 `;
         logsDiv.innerHTML = logEntry + logsDiv.innerHTML;
+    }
+
+    // ============ VOICE CHAT ============
+    initVoiceChat() {
+        this.voiceConnections = new Map();
+        this.localStream = null;
+        this.voiceMuted = false;
+
+        document.getElementById('voice-join').onclick = () => this.joinVoiceChat();
+        document.getElementById('voice-leave').onclick = () => this.leaveVoiceChat();
+        document.getElementById('voice-mute').onclick = () => this.toggleVoiceMute();
+
+        // Connect socket for voice signaling
+        if (!this.socket) {
+            this.socket = io();
+        }
+
+        this.socket.on('voiceParticipants', (participants) => {
+            participants.forEach(p => this.createPeerConnection(p.id, true));
+        });
+
+        this.socket.on('voiceUserJoined', (user) => {
+            this.createPeerConnection(user.id, false);
+            this.updateVoiceStatus(`${user.username} joined`);
+        });
+
+        this.socket.on('voiceUserLeft', (id) => {
+            if (this.voiceConnections.has(id)) {
+                this.voiceConnections.get(id).close();
+                this.voiceConnections.delete(id);
+            }
+            const audioEl = document.getElementById(`audio-${id}`);
+            if (audioEl) audioEl.remove();
+        });
+
+        this.socket.on('voiceUserList', (users) => {
+            this.updateVoiceParticipants(users);
+        });
+
+        this.socket.on('voiceOffer', async ({ from, offer }) => {
+            let pc = this.voiceConnections.get(from);
+            if (!pc) {
+                pc = this.createPeerConnection(from, false);
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            this.socket.emit('voiceAnswer', { to: from, answer });
+        });
+
+        this.socket.on('voiceAnswer', async ({ from, answer }) => {
+            const pc = this.voiceConnections.get(from);
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            }
+        });
+
+        this.socket.on('voiceIceCandidate', async ({ from, candidate }) => {
+            const pc = this.voiceConnections.get(from);
+            if (pc && candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        });
+    }
+
+    async joinVoiceChat() {
+        try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            
+            document.getElementById('voice-join').disabled = true;
+            document.getElementById('voice-leave').disabled = false;
+            document.getElementById('voice-mute').disabled = false;
+            document.getElementById('voice-indicator').className = 'voice-indicator connected';
+            document.getElementById('voice-status-text').textContent = 'Connected';
+
+            this.socket.emit('voiceJoin', currentUser.username);
+        } catch (e) {
+            alert('Could not access microphone. Please allow microphone permission.');
+            console.error('Microphone error:', e);
+        }
+    }
+
+    leaveVoiceChat() {
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream = null;
+        }
+
+        this.voiceConnections.forEach(pc => pc.close());
+        this.voiceConnections.clear();
+
+        document.querySelectorAll('audio[id^="audio-"]').forEach(el => el.remove());
+
+        if (this.socket) {
+            this.socket.emit('voiceLeave');
+        }
+
+        document.getElementById('voice-join').disabled = false;
+        document.getElementById('voice-leave').disabled = true;
+        document.getElementById('voice-mute').disabled = true;
+        document.getElementById('voice-indicator').className = 'voice-indicator disconnected';
+        document.getElementById('voice-status-text').textContent = 'Disconnected';
+        document.getElementById('voice-participants').innerHTML = '';
+    }
+
+    toggleVoiceMute() {
+        if (!this.localStream) return;
+
+        this.voiceMuted = !this.voiceMuted;
+        this.localStream.getAudioTracks().forEach(track => {
+            track.enabled = !this.voiceMuted;
+        });
+
+        const muteBtn = document.getElementById('voice-mute');
+        const micIcon = document.getElementById('mic-icon');
+        
+        if (this.voiceMuted) {
+            muteBtn.classList.add('muted');
+            micIcon.innerHTML = `
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+                <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
+                <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+            `;
+        } else {
+            muteBtn.classList.remove('muted');
+            micIcon.innerHTML = `
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+            `;
+        }
+
+        this.socket.emit('voiceMuteToggle', this.voiceMuted);
+    }
+
+    createPeerConnection(peerId, initiator) {
+        const config = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        const pc = new RTCPeerConnection(config);
+        this.voiceConnections.set(peerId, pc);
+
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => {
+                pc.addTrack(track, this.localStream);
+            });
+        }
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate) {
+                this.socket.emit('voiceIceCandidate', { to: peerId, candidate: e.candidate });
+            }
+        };
+
+        pc.ontrack = (e) => {
+            let audioEl = document.getElementById(`audio-${peerId}`);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = `audio-${peerId}`;
+                audioEl.autoplay = true;
+                document.body.appendChild(audioEl);
+            }
+            audioEl.srcObject = e.streams[0];
+        };
+
+        if (initiator) {
+            pc.createOffer().then(offer => {
+                pc.setLocalDescription(offer);
+                this.socket.emit('voiceOffer', { to: peerId, offer });
+            });
+        }
+
+        return pc;
+    }
+
+    updateVoiceParticipants(users) {
+        const list = document.getElementById('voice-participants');
+        if (!list) return;
+        
+        list.innerHTML = users.map(u => `
+            <div class="voice-participant ${u.muted ? 'muted' : ''}">
+                <div class="voice-participant-icon">${u.muted ? 'M' : 'V'}</div>
+                <span>${u.username}</span>
+                ${u.muted ? '<span class="muted-badge">MUTED</span>' : ''}
+            </div>
+        `).join('');
+    }
+
+    updateVoiceStatus(text) {
+        const statusText = document.getElementById('voice-status-text');
+        if (statusText) {
+            statusText.textContent = text;
+            setTimeout(() => {
+                if (this.localStream) {
+                    statusText.textContent = 'Connected';
+                }
+            }, 2000);
+        }
     }
 }

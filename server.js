@@ -643,6 +643,8 @@ app.get('/api/chat/pinned', (req, res) => {
 });
 
 // Socket.io for chat
+const voiceRooms = new Map(); // Store voice chat participants
+
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
@@ -675,6 +677,65 @@ io.on('connection', (socket) => {
     socket.on('leavePingSession', (sessionId) => {
         socket.leave(sessionId);
     });
+
+    // ============ VOICE CHAT SIGNALING ============
+    socket.on('voiceJoin', (username) => {
+        socket.voiceUsername = username;
+        socket.join('voice-room');
+        
+        // Get current participants
+        const participants = [];
+        for (const [id, data] of voiceRooms.entries()) {
+            if (id !== socket.id) {
+                participants.push({ id, username: data.username });
+            }
+        }
+        
+        voiceRooms.set(socket.id, { username, muted: false });
+        
+        // Notify others
+        socket.to('voice-room').emit('voiceUserJoined', { id: socket.id, username });
+        
+        // Send current participants to new user
+        socket.emit('voiceParticipants', participants);
+        
+        // Broadcast updated list
+        io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, data]) => ({
+            id, username: data.username, muted: data.muted
+        })));
+    });
+
+    socket.on('voiceLeave', () => {
+        socket.leave('voice-room');
+        voiceRooms.delete(socket.id);
+        io.to('voice-room').emit('voiceUserLeft', socket.id);
+        io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, data]) => ({
+            id, username: data.username, muted: data.muted
+        })));
+    });
+
+    socket.on('voiceOffer', ({ to, offer }) => {
+        io.to(to).emit('voiceOffer', { from: socket.id, offer });
+    });
+
+    socket.on('voiceAnswer', ({ to, answer }) => {
+        io.to(to).emit('voiceAnswer', { from: socket.id, answer });
+    });
+
+    socket.on('voiceIceCandidate', ({ to, candidate }) => {
+        io.to(to).emit('voiceIceCandidate', { from: socket.id, candidate });
+    });
+
+    socket.on('voiceMuteToggle', (muted) => {
+        const data = voiceRooms.get(socket.id);
+        if (data) {
+            data.muted = muted;
+            io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, d]) => ({
+                id, username: d.username, muted: d.muted
+            })));
+        }
+    });
+    // ============ END VOICE CHAT ============
 
     socket.on('chatMessage', (msg) => {
         const username = onlineUsers.get(socket.id) || 'Anonymous';
@@ -712,6 +773,16 @@ io.on('connection', (socket) => {
             }
             io.emit('userList', Array.from(new Set(onlineUsers.values())));
         }
+        
+        // Clean up voice chat
+        if (voiceRooms.has(socket.id)) {
+            voiceRooms.delete(socket.id);
+            io.to('voice-room').emit('voiceUserLeft', socket.id);
+            io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, data]) => ({
+                id, username: data.username, muted: data.muted
+            })));
+        }
+        
         console.log('User disconnected:', socket.id);
     });
 });
