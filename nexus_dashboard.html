@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen" id="login-screen">
+        <!-- Login Form -->
+        <div class="login-box" id="login-box">
+            <h1 class="login-title">WELCOME TO NEXUS NETWORK</h1>
+            <div class="login-form">
+                <input type="text" id="login-user" class="login-input" placeholder="Username">
+                <input type="password" id="login-pass" class="login-input" placeholder="Password">
+                <button class="login-btn" id="login-btn">LOGIN</button>
+                <button class="login-btn register-btn" id="show-register-btn">REGISTER</button>
+                <p class="login-error" id="login-error"></p>
+            </div>
+        </div>
+
+        <!-- Register Form (hidden by default) -->
+        <div class="login-box" id="register-box" style="display: none;">
+            <h1 class="login-title">CREATE ACCOUNT</h1>
+            <div class="login-form">
+                <input type="text" id="reg-user" class="login-input" placeholder="Create Username">
+                <input type="password" id="reg-pass" class="login-input" placeholder="Create Password">
+                <button class="login-btn" id="register-btn">CREATE ACCOUNT</button>
+                <button class="login-btn register-btn" id="back-login-btn">BACK TO LOGIN</button>
+                <p class="login-error" id="register-error"></p>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Main Dashboard (hidden until login) -->
+    <div class="container" id="dashboard" style="display: none;">
+        <!-- Header -->
+        <header class="header">
+            <div class="thanks-section">
+                <span class="thanks-title">THANKS TO:</span>
+                <span class="thanks-name">Isaacx8_0</span>
+                <span class="thanks-separator">|</span>
+                <span class="thanks-name">Rcykq</span>
+                <span class="thanks-separator">|</span>
+                <span class="thanks-name">ChateroMB</span>
+            </div>
+            <div class="window-controls">
+                <span class="control minimize">─</span>
+                <span class="control maximize">□</span>
+                <span class="control close">✕</span>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">◆</div>
+                <div class="logo-text">
+                    <h2>Nexus</h2>
+                    <span>Dashboard</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-link active" data-tool="ip-lookup">
+                        <span>IP LOOKUP</span>
+                    </div>
+                    <div class="nav-link" data-tool="phone-lookup">
+                        <span>PHONE LOOKUP</span>
+                    </div>
+                    <div class="nav-link" data-tool="whois">
+                        <span>WHOIS</span>
+                    </div>
+                    <div class="nav-link" data-tool="ip-pinger">
+                        <span>IP PINGER</span>
+                    </div>
+                    <div class="nav-link" data-tool="ip-logger">
+                        <span>IP LOGGER</span>
+                    </div>
+                    <div class="nav-link" data-tool="chat">
+                        <span>CHAT</span>
+                    </div>
+                    <div class="nav-link" data-tool="members">
+                        <span>MEMBERS</span>
+                    </div>
+                    <div class="nav-link" data-tool="profile">
+                        <span>PROFILE</span>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Logo Image Area -->
+            <div class="custom-area" id="custom-area">
+                <img src="logo.png.jpeg" alt="Nexus Logo" class="main-logo">
+            </div>
+
+            <!-- Tool Content Area -->
+            <div class="tool-content" id="tool-content">
+                <!-- Content loaded dynamically -->
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-stats">
+                <span>Nexus Network v1.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

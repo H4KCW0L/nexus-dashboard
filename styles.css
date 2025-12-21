@@ -1,0 +1,978 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #0a0a0a;
+    color: #ffffff;
+    overflow: hidden;
+}
+
+/* Login Screen */
+.login-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #0a0a0a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.login-box {
+    background: #1a1a1a;
+    border: 1px solid #ff4444;
+    border-radius: 10px;
+    padding: 40px;
+    text-align: center;
+    min-width: 350px;
+}
+
+.login-title {
+    color: #ff4444;
+    font-size: 20px;
+    margin-bottom: 30px;
+    letter-spacing: 2px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.login-input {
+    padding: 12px 15px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: white;
+    font-size: 14px;
+    transition: border-color 0.3s;
+}
+
+.login-input:focus {
+    outline: none;
+    border-color: #ff4444;
+}
+
+.login-btn {
+    padding: 12px;
+    background: #ff4444;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s;
+    margin-top: 10px;
+}
+
+.login-btn:hover {
+    background: #ff6666;
+}
+
+.login-error {
+    color: #ff4444;
+    font-size: 12px;
+    min-height: 18px;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    backdrop-filter: blur(5px);
+}
+
+.loading-overlay.active {
+    display: flex;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #333;
+    border-top: 4px solid #ff4444;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+    color: #ff4444;
+    margin-top: 20px;
+    font-size: 16px;
+    letter-spacing: 2px;
+}
+
+.login-box.blur {
+    filter: blur(5px);
+    pointer-events: none;
+}
+
+.container {
+    display: grid;
+    grid-template-areas: 
+        "header header"
+        "sidebar main"
+        "footer footer";
+    grid-template-rows: 60px 1fr 30px;
+    grid-template-columns: 200px 1fr;
+    height: 100vh;
+    border: 1px solid #ff4444;
+}
+
+/* Header */
+.header {
+    grid-area: header;
+    background: #1a1a1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid #ff4444;
+}
+
+.thanks-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.thanks-title {
+    color: #ff4444;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.thanks-name {
+    font-size: 12px;
+    color: #888;
+}
+
+.thanks-separator {
+    color: #444;
+    font-size: 12px;
+}
+
+.window-controls {
+    display: flex;
+    gap: 15px;
+}
+
+.control {
+    cursor: pointer;
+    font-size: 14px;
+    color: #888;
+    transition: color 0.3s;
+}
+
+.control:hover {
+    color: #ff4444;
+}
+
+.control.close:hover {
+    color: #ff0000;
+}
+
+/* Sidebar */
+.sidebar {
+    grid-area: sidebar;
+    background: #1a1a1a;
+    border-right: 1px solid #ff4444;
+    padding: 20px 0;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    padding: 0 15px;
+    margin-bottom: 30px;
+}
+
+.logo-icon {
+    font-size: 28px;
+    color: #ff4444;
+    margin-right: 10px;
+}
+
+.logo-text h2 {
+    color: #ff4444;
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.logo-text span {
+    color: #666;
+    font-size: 11px;
+}
+
+.sidebar-nav {
+    padding: 0 10px;
+}
+
+.nav-link {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    margin: 3px 0;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: all 0.3s ease;
+    border-left: 3px solid transparent;
+}
+
+.nav-link:hover {
+    background: #2a2a2a;
+    border-left-color: #ff4444;
+}
+
+.nav-link.active {
+    background: #2a2a2a;
+    border-left-color: #ff4444;
+    color: #ff4444;
+}
+
+.nav-link span {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+/* Main Content */
+.main-content {
+    grid-area: main;
+    background: #0f0f0f;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.custom-area {
+    background: #000;
+    border-radius: 8px;
+    border: 1px solid #333;
+    margin-bottom: 15px;
+    height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.main-logo {
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+/* Stats Cards - REMOVED */
+
+/* Tool Content */
+.tool-content {
+    background: #1a1a1a;
+    border-radius: 8px;
+    border: 1px solid #333;
+    padding: 20px;
+    min-height: 300px;
+}
+
+.tool-panel h2 {
+    color: #ff4444;
+    margin-bottom: 15px;
+    font-size: 20px;
+}
+
+.tool-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.tool-input {
+    padding: 8px 12px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: white;
+    font-size: 13px;
+    min-width: 200px;
+}
+
+.tool-input:focus {
+    outline: none;
+    border-color: #ff4444;
+}
+
+.btn-primary, .btn-secondary {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: #ff4444;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #ff6666;
+}
+
+.btn-secondary {
+    background: #333;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #555;
+}
+
+.tool-select {
+    padding: 8px 12px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: white;
+    font-size: 13px;
+}
+
+.output-area {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.output-header {
+    background: #252525;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-bottom: 1px solid #333;
+    color: #ff4444;
+}
+
+.output-content {
+    padding: 12px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #00ff00;
+    min-height: 180px;
+    max-height: 250px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+/* Footer */
+.footer {
+    grid-area: footer;
+    background: #1a1a1a;
+    border-top: 1px solid #ff4444;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 20px;
+}
+
+.footer-stats {
+    display: flex;
+    gap: 25px;
+    font-size: 11px;
+    color: #666;
+}
+
+.footer-stats span span {
+    color: #00ff00;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Loading animation */
+.loading {
+    color: #ff4444;
+}
+
+.loading::after {
+    content: '';
+    animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+    0% { content: '.'; }
+    33% { content: '..'; }
+    66% { content: '...'; }
+}
+
+
+/* Chat Styles */
+.chat-panel {
+    height: 100%;
+}
+
+.chat-container {
+    display: flex;
+    height: 350px;
+    border: 1px solid #333;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.chat-sidebar {
+    width: 150px;
+    background: #0a0a0a;
+    border-right: 1px solid #333;
+}
+
+.chat-users-header {
+    padding: 10px;
+    background: #252525;
+    color: #ff4444;
+    font-size: 12px;
+    font-weight: bold;
+    border-bottom: 1px solid #333;
+}
+
+.chat-users-list {
+    padding: 10px;
+    overflow-y: auto;
+    height: calc(100% - 35px);
+}
+
+.chat-user {
+    padding: 5px 8px;
+    margin: 3px 0;
+    background: #1a1a1a;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #00ff00;
+}
+
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    background: #0a0a0a;
+}
+
+.chat-message {
+    margin: 5px 0;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.chat-message.system {
+    color: #888;
+    font-style: italic;
+}
+
+.chat-message.user {
+    color: #fff;
+}
+
+.chat-time {
+    color: #666;
+    font-size: 10px;
+}
+
+.chat-username {
+    color: #ff4444;
+    font-weight: bold;
+}
+
+.chat-input-area {
+    display: flex;
+    padding: 10px;
+    background: #1a1a1a;
+    border-top: 1px solid #333;
+    gap: 10px;
+}
+
+.chat-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: white;
+    font-size: 13px;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: #ff4444;
+}
+
+.chat-error {
+    color: #ff4444;
+    text-align: center;
+    padding: 20px;
+    font-size: 14px;
+}
+
+
+/* Members Styles */
+.members-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 15px;
+    padding: 10px 0;
+}
+
+.member-card {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    gap: 15px;
+    transition: border-color 0.3s;
+}
+
+.member-card:hover {
+    border-color: #ff4444;
+}
+
+.member-avatar {
+    width: 60px;
+    height: 60px;
+    background: #ff4444;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.member-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.member-name {
+    font-size: 16px;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.online-badge {
+    background: #00ff00;
+    color: #000;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.member-role {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    display: inline-block;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.member-role.owner {
+    background: #ff4444;
+    color: white;
+}
+
+.member-role.admin {
+    background: #ffaa00;
+    color: #000;
+}
+
+.member-role.member {
+    background: #333;
+    color: #888;
+}
+
+.member-bio {
+    font-size: 12px;
+    color: #888;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.loading-members {
+    color: #888;
+    text-align: center;
+    padding: 40px;
+    font-size: 14px;
+}
+
+/* Profile Styles */
+.profile-container {
+    display: flex;
+    gap: 30px;
+    padding: 10px 0;
+}
+
+.profile-avatar-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.profile-avatar {
+    width: 120px;
+    height: 120px;
+    background: #ff4444;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    font-weight: bold;
+    color: white;
+    border: 3px solid #333;
+    overflow: hidden;
+}
+
+.profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.profile-avatar-section .tool-input {
+    width: 200px;
+    font-size: 11px;
+}
+
+.profile-info {
+    flex: 1;
+    max-width: 400px;
+}
+
+.profile-field {
+    margin-bottom: 20px;
+}
+
+.profile-field label {
+    display: block;
+    color: #ff4444;
+    font-size: 12px;
+    margin-bottom: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.profile-field .tool-input {
+    width: 100%;
+}
+
+.profile-bio {
+    min-height: 100px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.profile-role {
+    padding: 8px 15px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: bold;
+    display: inline-block;
+}
+
+.profile-role.owner {
+    background: #ff4444;
+    color: white;
+}
+
+.profile-role.admin {
+    background: #ffaa00;
+    color: #000;
+}
+
+.profile-role.member {
+    background: #333;
+    color: #888;
+}
+
+.profile-message {
+    margin-top: 15px;
+    font-size: 13px;
+    min-height: 20px;
+}
+
+/* Register button style */
+.register-btn {
+    background: #333 !important;
+}
+
+.register-btn:hover {
+    background: #555 !important;
+}
+
+
+/* Context Menu */
+.context-menu {
+    position: fixed;
+    background: #1a1a1a;
+    border: 1px solid #ff4444;
+    border-radius: 5px;
+    min-width: 140px;
+    z-index: 9999;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    overflow: hidden;
+}
+
+.context-item {
+    padding: 10px 15px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #fff;
+    transition: background 0.2s;
+}
+
+.context-item:hover {
+    background: #2a2a2a;
+    color: #ff4444;
+}
+
+.context-item.danger {
+    color: #ff4444;
+}
+
+.context-item.danger:hover {
+    background: #ff4444;
+    color: #fff;
+}
+
+.context-separator {
+    height: 1px;
+    background: #333;
+    margin: 5px 0;
+}
+
+/* Member Menu Button (3 dots) */
+.member-menu-btn {
+    font-size: 20px;
+    font-weight: bold;
+    color: #888;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 5px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.member-menu-btn:hover {
+    color: #ff4444;
+    background: #2a2a2a;
+}
+
+.member-card {
+    position: relative;
+}
+
+/* Member Dropdown */
+.member-dropdown {
+    position: absolute;
+    right: 10px;
+    top: 40px;
+    background: #1a1a1a;
+    border: 1px solid #ff4444;
+    border-radius: 5px;
+    min-width: 120px;
+    z-index: 100;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    overflow: hidden;
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    font-size: 11px;
+    cursor: pointer;
+    color: #fff;
+    transition: background 0.2s;
+}
+
+.dropdown-item:hover {
+    background: #2a2a2a;
+    color: #ff4444;
+}
+
+.dropdown-item.danger {
+    color: #ff4444;
+}
+
+.dropdown-item.danger:hover {
+    background: #ff4444;
+    color: #fff;
+}
+
+
+/* IP Logger Styles */
+.iplogger-create {
+    margin-bottom: 20px;
+}
+
+.created-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+    padding: 15px;
+    background: #0a0a0a;
+    border: 1px solid #00ff00;
+    border-radius: 5px;
+}
+
+.created-link span {
+    color: #00ff00;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.my-links-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.iplogger-link-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 5px;
+    transition: border-color 0.2s;
+}
+
+.iplogger-link-item:hover {
+    border-color: #ff4444;
+}
+
+.link-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.link-url {
+    color: #00ff00;
+    font-size: 12px;
+    font-family: monospace;
+}
+
+.link-stats {
+    color: #666;
+    font-size: 11px;
+}
+
+.link-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-small {
+    padding: 5px 10px;
+    font-size: 10px;
+}
+
+.btn-small.danger {
+    color: #ff4444;
+}
+
+.btn-small.danger:hover {
+    background: #ff4444;
+    color: white;
+}
+
+
+/* Chat Image Styles */
+.chat-image-container {
+    margin-top: 5px;
+}
+
+.chat-image {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid #333;
+    transition: transform 0.2s;
+}
+
+.chat-image:hover {
+    transform: scale(1.05);
+    border-color: #ff4444;
+}
+
+#chat-image-btn {
+    padding: 8px 12px;
+    font-size: 11px;
+    min-width: auto;
+}

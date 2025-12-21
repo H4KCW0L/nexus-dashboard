@@ -1,0 +1,26 @@
+18/12/2025 03:06:26 - 185.107.56.80
+IP: 185.107.56.80
+Ciudad: Roosendaal
+Región: North Brabant
+País: NL
+Ubicación: 51.5308,4.4653
+Organización: AS43350 NForce Entertainment B.V.
+Código Postal: 4701
+Zona Horaria: Europe/Amsterdam
+Clase IP: Clase B
+Tipo: IP PÚBLICA
+Esta IP está usando Proxy o VPN.
+---------------------
+18/12/2025 03:06:48 - 190.174.125.194
+IP: 190.174.125.194
+Ciudad: Buenos Aires
+Región: Buenos Aires F.D.
+País: AR
+Ubicación: -34.6131,-58.3772
+Organización: AS22927 Telefonica de Argentina
+Código Postal: 1871
+Zona Horaria: America/Argentina/Buenos_Aires
+Clase IP: Clase B
+Tipo: IP PÚBLICA
+No se detectó Proxy ni VPN.
+---------------------
