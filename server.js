@@ -14,10 +14,11 @@ const activePings = new Map();
 
 // Middleware
 app.use(express.static(__dirname));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Database file
 const DB_FILE = 'users.json';
+const SOUNDS_FILE = 'voicesounds.json';
 
 // Load or create users database
 function loadUsers() {
@@ -47,6 +48,21 @@ function saveUsers(users) {
     fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
 }
 
+// Voice sounds system
+function loadVoiceSounds() {
+    try {
+        if (fs.existsSync(SOUNDS_FILE)) {
+            return JSON.parse(fs.readFileSync(SOUNDS_FILE, 'utf8'));
+        }
+    } catch (e) {}
+    return { system: { join: null, leave: null }, soundboard: [] };
+}
+
+function saveVoiceSounds(sounds) {
+    fs.writeFileSync(SOUNDS_FILE, JSON.stringify(sounds, null, 2));
+}
+
+let voiceSounds = loadVoiceSounds();
 let registeredUsers = loadUsers();
 
 // Store connected users (online)
@@ -642,6 +658,75 @@ app.get('/api/chat/pinned', (req, res) => {
     res.json(pinnedMessage);
 });
 
+// ============ VOICE SOUNDS / SOUNDBOARD ============
+app.get('/api/voice/sounds', (req, res) => {
+    res.json(voiceSounds);
+});
+
+// Add sound to soundboard
+app.post('/api/voice/soundboard/add', (req, res) => {
+    const { username, soundData, soundName } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+    
+    if (!voiceSounds.soundboard) voiceSounds.soundboard = [];
+    
+    if (voiceSounds.soundboard.length >= 20) {
+        res.json({ success: false, message: 'Max 20 sounds allowed' });
+        return;
+    }
+    
+    const id = Date.now().toString(36);
+    voiceSounds.soundboard.push({ id, name: soundName, data: soundData });
+    saveVoiceSounds(voiceSounds);
+    
+    res.json({ success: true, id });
+});
+
+// Remove sound from soundboard
+app.delete('/api/voice/soundboard/:id', (req, res) => {
+    const { id } = req.params;
+    const { username } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+    
+    if (!voiceSounds.soundboard) voiceSounds.soundboard = [];
+    voiceSounds.soundboard = voiceSounds.soundboard.filter(s => s.id !== id);
+    saveVoiceSounds(voiceSounds);
+    
+    res.json({ success: true });
+});
+
+// Set system sounds (join/leave)
+app.post('/api/voice/sounds/system', (req, res) => {
+    const { username, soundType, soundData, soundName } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        res.json({ success: false, message: 'No permission' });
+        return;
+    }
+    
+    if (!['join', 'leave'].includes(soundType)) {
+        res.json({ success: false, message: 'Invalid sound type' });
+        return;
+    }
+    
+    if (!voiceSounds.system) voiceSounds.system = {};
+    voiceSounds.system[soundType] = soundData ? { data: soundData, name: soundName } : null;
+    saveVoiceSounds(voiceSounds);
+    
+    res.json({ success: true });
+});
+
 // Socket.io for chat
 const voiceRooms = new Map(); // Store voice chat participants
 
@@ -679,38 +764,44 @@ io.on('connection', (socket) => {
     });
 
     // ============ VOICE CHAT SIGNALING ============
-    socket.on('voiceJoin', (username) => {
+    socket.on('voiceJoin', (data) => {
+        const username = typeof data === 'string' ? data : data.username;
+        const avatar = typeof data === 'object' ? data.avatar : '';
+        
         socket.voiceUsername = username;
         socket.join('voice-room');
         
         // Get current participants
         const participants = [];
-        for (const [id, data] of voiceRooms.entries()) {
+        for (const [id, pdata] of voiceRooms.entries()) {
             if (id !== socket.id) {
-                participants.push({ id, username: data.username });
+                participants.push({ id, username: pdata.username, avatar: pdata.avatar });
             }
         }
         
-        voiceRooms.set(socket.id, { username, muted: false });
+        voiceRooms.set(socket.id, { username, avatar, muted: false, speaking: false });
         
-        // Notify others
-        socket.to('voice-room').emit('voiceUserJoined', { id: socket.id, username });
+        // Notify others with sound event
+        socket.to('voice-room').emit('voiceUserJoined', { id: socket.id, username, avatar });
+        socket.to('voice-room').emit('voicePlaySound', 'join');
         
         // Send current participants to new user
         socket.emit('voiceParticipants', participants);
         
         // Broadcast updated list
-        io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, data]) => ({
-            id, username: data.username, muted: data.muted
+        io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, d]) => ({
+            id, username: d.username, avatar: d.avatar, muted: d.muted, speaking: d.speaking
         })));
     });
 
     socket.on('voiceLeave', () => {
+        const userData = voiceRooms.get(socket.id);
         socket.leave('voice-room');
         voiceRooms.delete(socket.id);
         io.to('voice-room').emit('voiceUserLeft', socket.id);
+        io.to('voice-room').emit('voicePlaySound', 'leave');
         io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, data]) => ({
-            id, username: data.username, muted: data.muted
+            id, username: data.username, avatar: data.avatar, muted: data.muted, speaking: data.speaking
         })));
     });
 
@@ -731,8 +822,26 @@ io.on('connection', (socket) => {
         if (data) {
             data.muted = muted;
             io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, d]) => ({
-                id, username: d.username, muted: d.muted
+                id, username: d.username, avatar: d.avatar, muted: d.muted, speaking: d.speaking
             })));
+        }
+    });
+
+    socket.on('voiceSpeaking', (speaking) => {
+        const data = voiceRooms.get(socket.id);
+        if (data) {
+            data.speaking = speaking;
+            io.to('voice-room').emit('voiceUserList', Array.from(voiceRooms.entries()).map(([id, d]) => ({
+                id, username: d.username, avatar: d.avatar, muted: d.muted, speaking: d.speaking
+            })));
+        }
+    });
+
+    // Soundboard - play sound to all in voice
+    socket.on('voicePlaySoundboard', (soundId) => {
+        const sound = voiceSounds.soundboard?.find(s => s.id === soundId);
+        if (sound) {
+            io.to('voice-room').emit('voiceSoundboardPlay', { id: soundId, data: sound.data });
         }
     });
     // ============ END VOICE CHAT ============

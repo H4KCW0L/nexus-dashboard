@@ -359,30 +359,25 @@ class NexusDashboard {
         return `
             <div class="tool-panel voice-panel">
                 <h2>Voice Chat</h2>
-                <div class="voice-container">
-                    <div class="voice-status" id="voice-status">
+                <div class="voice-preview">
+                    <div class="voice-preview-status">
                         <div class="voice-indicator disconnected" id="voice-indicator"></div>
                         <span id="voice-status-text">Not connected</span>
                     </div>
-                    <div class="voice-controls">
-                        <button class="btn-primary" id="voice-join">Join Voice</button>
-                        <button class="btn-secondary" id="voice-leave" disabled>Leave</button>
-                        <button class="btn-icon voice-mute" id="voice-mute" disabled title="Mute">
-                            <svg id="mic-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                                <line x1="12" y1="19" x2="12" y2="23"></line>
-                                <line x1="8" y1="23" x2="16" y2="23"></line>
-                            </svg>
-                        </button>
+                    <div class="voice-preview-users" id="voice-preview-users">
+                        <span class="voice-empty">No one in voice</span>
                     </div>
-                    <div class="voice-participants">
-                        <div class="voice-participants-header">In Voice Channel</div>
-                        <div class="voice-participants-list" id="voice-participants"></div>
+                    <button class="btn-primary btn-join-voice" id="voice-join">Join Voice Channel</button>
+                </div>
+                <div class="voice-settings">
+                    <h3>Audio Settings</h3>
+                    <div class="voice-setting">
+                        <label>Input Device (Microphone)</label>
+                        <select id="voice-input-device" class="tool-select"></select>
                     </div>
-                    <div class="voice-info">
-                        <p>Click "Join Voice" to connect to the voice channel.</p>
-                        <p style="color:#888;font-size:11px;">Requires microphone permission.</p>
+                    <div class="voice-setting">
+                        <label>Output Device (Speakers)</label>
+                        <select id="voice-output-device" class="tool-select"></select>
                     </div>
                 </div>
             </div>
@@ -1445,23 +1440,45 @@ ISP: ${log.isp || 'Unknown'}
         this.voiceConnections = new Map();
         this.localStream = null;
         this.voiceMuted = false;
+        this.voiceSounds = { system: {}, soundboard: [] };
+        this.selectedInputDevice = null;
+        this.selectedOutputDevice = null;
+        this.audioContext = null;
+        this.analyser = null;
 
-        document.getElementById('voice-join').onclick = () => this.joinVoiceChat();
-        document.getElementById('voice-leave').onclick = () => this.leaveVoiceChat();
-        document.getElementById('voice-mute').onclick = () => this.toggleVoiceMute();
+        // Load audio devices
+        this.loadAudioDevices();
+        
+        // Load custom sounds
+        this.loadVoiceSounds();
+
+        document.getElementById('voice-join').onclick = () => this.openVoiceModal();
+
+        // Device selection
+        document.getElementById('voice-input-device').onchange = (e) => {
+            this.selectedInputDevice = e.target.value;
+        };
+        document.getElementById('voice-output-device').onchange = (e) => {
+            this.selectedOutputDevice = e.target.value;
+            this.updateOutputDevices();
+        };
 
         // Connect socket for voice signaling
         if (!this.socket) {
             this.socket = io();
         }
 
+        this.setupVoiceSocketListeners();
+    }
+
+    setupVoiceSocketListeners() {
         this.socket.on('voiceParticipants', (participants) => {
             participants.forEach(p => this.createPeerConnection(p.id, true));
+            this.updateVoicePreview();
         });
 
         this.socket.on('voiceUserJoined', (user) => {
             this.createPeerConnection(user.id, false);
-            this.updateVoiceStatus(`${user.username} joined`);
         });
 
         this.socket.on('voiceUserLeft', (id) => {
@@ -1474,7 +1491,14 @@ ISP: ${log.isp || 'Unknown'}
         });
 
         this.socket.on('voiceUserList', (users) => {
-            this.updateVoiceParticipants(users);
+            this.updateVoicePreview(users);
+            if (this.voiceModalOpen) {
+                this.updateVoiceModalUsers(users);
+            }
+        });
+
+        this.socket.on('voicePlaySound', (soundType) => {
+            this.playVoiceSound(soundType);
         });
 
         this.socket.on('voiceOffer', async ({ from, offer }) => {
@@ -1503,24 +1527,269 @@ ISP: ${log.isp || 'Unknown'}
         });
     }
 
-    async joinVoiceChat() {
+    async loadAudioDevices() {
         try {
-            this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputSelect = document.getElementById('voice-input-device');
+            const outputSelect = document.getElementById('voice-output-device');
             
-            document.getElementById('voice-join').disabled = true;
-            document.getElementById('voice-leave').disabled = false;
-            document.getElementById('voice-mute').disabled = false;
-            document.getElementById('voice-indicator').className = 'voice-indicator connected';
-            document.getElementById('voice-status-text').textContent = 'Connected';
-
-            this.socket.emit('voiceJoin', currentUser.username);
+            inputSelect.innerHTML = '';
+            outputSelect.innerHTML = '';
+            
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `${device.kind} (${device.deviceId.slice(0, 8)})`;
+                
+                if (device.kind === 'audioinput') {
+                    inputSelect.appendChild(option);
+                } else if (device.kind === 'audiooutput') {
+                    outputSelect.appendChild(option);
+                }
+            });
         } catch (e) {
-            alert('Could not access microphone. Please allow microphone permission.');
-            console.error('Microphone error:', e);
+            console.error('Error loading audio devices:', e);
         }
     }
 
+    async loadVoiceSounds() {
+        try {
+            const response = await fetch('/api/voice/sounds');
+            this.voiceSounds = await response.json();
+            if (!this.voiceSounds.soundboard) this.voiceSounds.soundboard = [];
+            if (!this.voiceSounds.system) this.voiceSounds.system = {};
+        } catch (e) {
+            this.voiceSounds = { system: {}, soundboard: [] };
+        }
+    }
+
+    openVoiceModal() {
+        this.voiceModalOpen = true;
+        const isAdmin = currentUser && (currentUser.role === 'owner' || currentUser.role === 'admin');
+        
+        const modal = document.createElement('div');
+        modal.className = 'voice-modal';
+        modal.id = 'voice-modal';
+        modal.innerHTML = `
+            <div class="voice-modal-content">
+                <div class="voice-modal-header">
+                    <h2>Voice Channel</h2>
+                    <div class="voice-modal-tabs">
+                        <button class="voice-tab active" data-tab="users">Users</button>
+                        <button class="voice-tab" data-tab="soundboard">Soundboard</button>
+                    </div>
+                    <button class="voice-modal-close" id="voice-modal-close">X</button>
+                </div>
+                <div class="voice-modal-body">
+                    <div class="voice-tab-content active" id="tab-users">
+                        <div class="voice-modal-users" id="voice-modal-users">
+                            <div class="voice-empty-modal">Connecting...</div>
+                        </div>
+                    </div>
+                    <div class="voice-tab-content" id="tab-soundboard">
+                        <div class="soundboard-container">
+                            ${isAdmin ? `
+                            <div class="soundboard-upload">
+                                <input type="file" id="soundboard-file" accept="audio/mp3,audio/mpeg" style="display:none;">
+                                <button class="btn-secondary" id="soundboard-add-btn">+ Add Sound</button>
+                            </div>
+                            ` : ''}
+                            <div class="soundboard-grid" id="soundboard-grid"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="voice-modal-controls">
+                    <button class="voice-control-btn ${this.voiceMuted ? 'muted' : ''}" id="modal-mute" title="Mute">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="23"></line>
+                            <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                    </button>
+                    <button class="voice-control-btn leave" id="modal-leave" title="Leave">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Tab switching
+        modal.querySelectorAll('.voice-tab').forEach(tab => {
+            tab.onclick = () => {
+                modal.querySelectorAll('.voice-tab').forEach(t => t.classList.remove('active'));
+                modal.querySelectorAll('.voice-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+            };
+        });
+        
+        document.getElementById('voice-modal-close').onclick = () => this.closeVoiceModal();
+        document.getElementById('modal-mute').onclick = () => this.toggleVoiceMute();
+        document.getElementById('modal-leave').onclick = () => {
+            this.leaveVoiceChat();
+            this.closeVoiceModal();
+        };
+        
+        // Soundboard
+        this.renderSoundboard();
+        if (isAdmin) {
+            document.getElementById('soundboard-add-btn').onclick = () => document.getElementById('soundboard-file').click();
+            document.getElementById('soundboard-file').onchange = (e) => this.uploadSoundboardSound(e.target.files[0]);
+        }
+        
+        // Listen for soundboard plays
+        this.socket.on('voiceSoundboardPlay', ({ data }) => {
+            const audio = new Audio(data);
+            audio.volume = 0.5;
+            audio.play().catch(() => {});
+        });
+        
+        this.joinVoiceChat();
+    }
+
+    renderSoundboard() {
+        const grid = document.getElementById('soundboard-grid');
+        if (!grid) return;
+        const isAdmin = currentUser && (currentUser.role === 'owner' || currentUser.role === 'admin');
+        const sounds = this.voiceSounds.soundboard || [];
+        
+        if (sounds.length === 0) {
+            grid.innerHTML = '<div class="soundboard-empty">No sounds yet</div>';
+            return;
+        }
+        
+        grid.innerHTML = sounds.map(s => `
+            <div class="soundboard-btn" data-id="${s.id}">
+                <span>${s.name.replace('.mp3', '').substring(0, 10)}</span>
+                ${isAdmin ? `<button class="soundboard-del" data-id="${s.id}">X</button>` : ''}
+            </div>
+        `).join('');
+        
+        grid.querySelectorAll('.soundboard-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                if (e.target.classList.contains('soundboard-del')) return;
+                this.socket.emit('voicePlaySoundboard', btn.dataset.id);
+            };
+        });
+        
+        grid.querySelectorAll('.soundboard-del').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteSoundboardSound(btn.dataset.id);
+            };
+        });
+    }
+
+    async uploadSoundboardSound(file) {
+        if (!file || !file.type.includes('audio')) return;
+        if (file.size > 5 * 1024 * 1024) { alert('Max 5MB'); return; }
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const res = await fetch('/api/voice/soundboard/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username, soundData: e.target.result, soundName: file.name })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (!this.voiceSounds.soundboard) this.voiceSounds.soundboard = [];
+                this.voiceSounds.soundboard.push({ id: data.id, name: file.name, data: e.target.result });
+                this.renderSoundboard();
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async deleteSoundboardSound(id) {
+        await fetch(`/api/voice/soundboard/${id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: currentUser.username })
+        });
+        this.voiceSounds.soundboard = (this.voiceSounds.soundboard || []).filter(s => s.id !== id);
+        this.renderSoundboard();
+    }
+
+    closeVoiceModal() {
+        this.voiceModalOpen = false;
+        const modal = document.getElementById('voice-modal');
+        if (modal) modal.remove();
+    }
+
+    async joinVoiceChat() {
+        try {
+            const constraints = {
+                audio: this.selectedInputDevice ? { deviceId: { exact: this.selectedInputDevice } } : true,
+                video: false
+            };
+            
+            this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            // Setup audio analysis for speaking detection
+            this.setupSpeakingDetection();
+            
+            document.getElementById('voice-indicator').className = 'voice-indicator connected';
+            document.getElementById('voice-status-text').textContent = 'Connected';
+
+            this.socket.emit('voiceJoin', {
+                username: currentUser.username,
+                avatar: currentUser.avatar || ''
+            });
+        } catch (e) {
+            alert('Could not access microphone. Please allow microphone permission.');
+            console.error('Microphone error:', e);
+            this.closeVoiceModal();
+        }
+    }
+
+    setupSpeakingDetection() {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioContext.createAnalyser();
+        const source = this.audioContext.createMediaStreamSource(this.localStream);
+        source.connect(this.analyser);
+        
+        this.analyser.fftSize = 512;
+        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        
+        let speaking = false;
+        const checkSpeaking = () => {
+            if (!this.localStream || this.voiceMuted) {
+                if (speaking) {
+                    speaking = false;
+                    this.socket.emit('voiceSpeaking', false);
+                }
+                return;
+            }
+            
+            this.analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            
+            const isSpeaking = average > 20;
+            if (isSpeaking !== speaking) {
+                speaking = isSpeaking;
+                this.socket.emit('voiceSpeaking', speaking);
+            }
+            
+            if (this.localStream) {
+                requestAnimationFrame(checkSpeaking);
+            }
+        };
+        checkSpeaking();
+    }
+
     leaveVoiceChat() {
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+        
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
             this.localStream = null;
@@ -1535,12 +1804,9 @@ ISP: ${log.isp || 'Unknown'}
             this.socket.emit('voiceLeave');
         }
 
-        document.getElementById('voice-join').disabled = false;
-        document.getElementById('voice-leave').disabled = true;
-        document.getElementById('voice-mute').disabled = true;
         document.getElementById('voice-indicator').className = 'voice-indicator disconnected';
-        document.getElementById('voice-status-text').textContent = 'Disconnected';
-        document.getElementById('voice-participants').innerHTML = '';
+        document.getElementById('voice-status-text').textContent = 'Not connected';
+        this.updateVoicePreview([]);
     }
 
     toggleVoiceMute() {
@@ -1551,29 +1817,20 @@ ISP: ${log.isp || 'Unknown'}
             track.enabled = !this.voiceMuted;
         });
 
-        const muteBtn = document.getElementById('voice-mute');
-        const micIcon = document.getElementById('mic-icon');
-        
-        if (this.voiceMuted) {
-            muteBtn.classList.add('muted');
-            micIcon.innerHTML = `
-                <line x1="1" y1="1" x2="23" y2="23"></line>
-                <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
-                <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
-                <line x1="12" y1="19" x2="12" y2="23"></line>
-                <line x1="8" y1="23" x2="16" y2="23"></line>
-            `;
-        } else {
-            muteBtn.classList.remove('muted');
-            micIcon.innerHTML = `
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                <line x1="12" y1="19" x2="12" y2="23"></line>
-                <line x1="8" y1="23" x2="16" y2="23"></line>
-            `;
+        const modalMuteBtn = document.getElementById('modal-mute');
+        if (modalMuteBtn) {
+            modalMuteBtn.classList.toggle('muted', this.voiceMuted);
         }
 
         this.socket.emit('voiceMuteToggle', this.voiceMuted);
+    }
+
+    updateOutputDevices() {
+        document.querySelectorAll('audio[id^="audio-"]').forEach(el => {
+            if (el.setSinkId && this.selectedOutputDevice) {
+                el.setSinkId(this.selectedOutputDevice);
+            }
+        });
     }
 
     createPeerConnection(peerId, initiator) {
@@ -1605,6 +1862,9 @@ ISP: ${log.isp || 'Unknown'}
                 audioEl = document.createElement('audio');
                 audioEl.id = `audio-${peerId}`;
                 audioEl.autoplay = true;
+                if (this.selectedOutputDevice && audioEl.setSinkId) {
+                    audioEl.setSinkId(this.selectedOutputDevice);
+                }
                 document.body.appendChild(audioEl);
             }
             audioEl.srcObject = e.streams[0];
@@ -1620,28 +1880,41 @@ ISP: ${log.isp || 'Unknown'}
         return pc;
     }
 
-    updateVoiceParticipants(users) {
-        const list = document.getElementById('voice-participants');
-        if (!list) return;
+    updateVoicePreview(users = []) {
+        const preview = document.getElementById('voice-preview-users');
+        if (!preview) return;
         
-        list.innerHTML = users.map(u => `
-            <div class="voice-participant ${u.muted ? 'muted' : ''}">
-                <div class="voice-participant-icon">${u.muted ? 'M' : 'V'}</div>
-                <span>${u.username}</span>
-                ${u.muted ? '<span class="muted-badge">MUTED</span>' : ''}
-            </div>
-        `).join('');
+        if (users.length === 0) {
+            preview.innerHTML = '<span class="voice-empty">No one in voice</span>';
+        } else {
+            preview.innerHTML = users.map(u => `
+                <div class="voice-preview-user ${u.speaking ? 'speaking' : ''} ${u.muted ? 'muted' : ''}">
+                    <div class="voice-preview-avatar">
+                        ${u.avatar ? `<img src="${u.avatar}">` : u.username.charAt(0).toUpperCase()}
+                    </div>
+                    <span>${u.username}</span>
+                </div>
+            `).join('');
+        }
     }
 
-    updateVoiceStatus(text) {
-        const statusText = document.getElementById('voice-status-text');
-        if (statusText) {
-            statusText.textContent = text;
-            setTimeout(() => {
-                if (this.localStream) {
-                    statusText.textContent = 'Connected';
-                }
-            }, 2000);
+    updateVoiceModalUsers(users) {
+        const container = document.getElementById('voice-modal-users');
+        if (!container) return;
+        
+        if (users.length === 0) {
+            container.innerHTML = '<div class="voice-empty-modal">No one else here</div>';
+            return;
         }
+        
+        container.innerHTML = users.map(u => `
+            <div class="voice-user-card ${u.speaking ? 'speaking' : ''} ${u.muted ? 'muted' : ''}">
+                <div class="voice-user-avatar ${u.speaking ? 'speaking-ring' : ''}">
+                    ${u.avatar ? `<img src="${u.avatar}">` : u.username.charAt(0).toUpperCase()}
+                </div>
+                <div class="voice-user-name">${u.username}</div>
+                ${u.muted ? '<div class="voice-user-muted">MUTED</div>' : ''}
+            </div>
+        `).join('');
     }
 }
