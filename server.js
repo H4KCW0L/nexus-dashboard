@@ -4,7 +4,6 @@ const { Server } = require('socket.io');
 const fs = require('fs');
 const net = require('net');
 const dns = require('dns');
-const { exec } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
@@ -471,27 +470,103 @@ app.post('/api/ping/start', (req, res) => {
         clearInterval(activePings.get(sessionId));
     }
 
-    const isWindows = process.platform === 'win32';
-    const pingCmd = isWindows ? `ping -n 1 -w 2000 ${target}` : `ping -c 1 -W 2 ${target}`;
+    // Resolve hostname first
+    const resolveTarget = (host) => {
+        return new Promise((resolve) => {
+            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+                resolve(host);
+            } else {
+                dns.lookup(host, (err, address) => {
+                    resolve(err ? null : address);
+                });
+            }
+        });
+    };
 
-    const pingInterval = setInterval(() => {
-        exec(pingCmd, (error, stdout) => {
-            let result = { target, online: false, time: null, ttl: null };
-            
-            if (!error && stdout) {
-                // Parse ping output
-                const timeMatch = stdout.match(/time[=<](\d+)/i);
-                const ttlMatch = stdout.match(/ttl[=](\d+)/i);
-                
-                if (timeMatch) {
-                    result.online = true;
-                    result.time = parseInt(timeMatch[1]);
-                    result.ttl = ttlMatch ? parseInt(ttlMatch[1]) : null;
+    const pingInterval = setInterval(async () => {
+        const ip = await resolveTarget(target);
+        if (!ip) {
+            io.to(sessionId).emit('pingResult', { target, online: false, time: null, ttl: null, error: 'DNS failed' });
+            return;
+        }
+
+        const startTime = Date.now();
+        const socket = new net.Socket();
+        socket.setTimeout(2000);
+
+        let responded = false;
+
+        socket.on('connect', () => {
+            if (!responded) {
+                responded = true;
+                const time = Date.now() - startTime;
+                socket.destroy();
+                io.to(sessionId).emit('pingResult', { target, online: true, time, ttl: 64 });
+            }
+        });
+
+        socket.on('timeout', () => {
+            if (!responded) {
+                responded = true;
+                socket.destroy();
+                // Timeout on port 80, try port 443
+                tryPort443();
+            }
+        });
+
+        socket.on('error', (err) => {
+            if (!responded) {
+                responded = true;
+                socket.destroy();
+                // Connection refused means host is online but port closed
+                if (err.code === 'ECONNREFUSED') {
+                    const time = Date.now() - startTime;
+                    io.to(sessionId).emit('pingResult', { target, online: true, time, ttl: 64 });
+                } else {
+                    tryPort443();
                 }
             }
-            
-            io.to(sessionId).emit('pingResult', result);
         });
+
+        const tryPort443 = () => {
+            const socket2 = new net.Socket();
+            socket2.setTimeout(2000);
+            let responded2 = false;
+
+            socket2.on('connect', () => {
+                if (!responded2) {
+                    responded2 = true;
+                    const time = Date.now() - startTime;
+                    socket2.destroy();
+                    io.to(sessionId).emit('pingResult', { target, online: true, time, ttl: 64 });
+                }
+            });
+
+            socket2.on('timeout', () => {
+                if (!responded2) {
+                    responded2 = true;
+                    socket2.destroy();
+                    io.to(sessionId).emit('pingResult', { target, online: false, time: null, ttl: null });
+                }
+            });
+
+            socket2.on('error', (err) => {
+                if (!responded2) {
+                    responded2 = true;
+                    socket2.destroy();
+                    if (err.code === 'ECONNREFUSED') {
+                        const time = Date.now() - startTime;
+                        io.to(sessionId).emit('pingResult', { target, online: true, time, ttl: 64 });
+                    } else {
+                        io.to(sessionId).emit('pingResult', { target, online: false, time: null, ttl: null });
+                    }
+                }
+            });
+
+            socket2.connect(443, ip);
+        };
+
+        socket.connect(80, ip);
     }, 1000);
 
     activePings.set(sessionId, pingInterval);

@@ -289,18 +289,6 @@ class NexusDashboard {
                 <h2>Port Scanner</h2>
                 <div class="tool-controls">
                     <input type="text" class="tool-input" id="scan-target" placeholder="Enter IP or domain">
-                    <select class="tool-select" id="scan-preset">
-                        <option value="common">Common Ports (Top 20)</option>
-                        <option value="web">Web Ports</option>
-                        <option value="database">Database Ports</option>
-                        <option value="all">All Common (1-1024)</option>
-                        <option value="custom">Custom Range</option>
-                    </select>
-                </div>
-                <div class="tool-controls custom-ports" id="custom-ports" style="display:none;">
-                    <input type="text" class="tool-input" id="port-range" placeholder="Ports: 80,443,8080 or 1-100">
-                </div>
-                <div class="tool-controls">
                     <button class="btn-primary" id="start-scan">Scan</button>
                     <button class="btn-secondary" id="clear-scan">Clear</button>
                 </div>
@@ -1155,13 +1143,6 @@ Region:        ${countryData.region}
 
     // PORT SCANNER
     initPortScanner() {
-        const presetSelect = document.getElementById('scan-preset');
-        const customDiv = document.getElementById('custom-ports');
-        
-        presetSelect.onchange = () => {
-            customDiv.style.display = presetSelect.value === 'custom' ? 'flex' : 'none';
-        };
-        
         document.getElementById('start-scan').onclick = () => this.startPortScan();
         document.getElementById('clear-scan').onclick = () => {
             document.getElementById('scan-output').textContent = 'Enter a target to scan...';
@@ -1174,7 +1155,6 @@ Region:        ${countryData.region}
 
     async startPortScan() {
         const target = document.getElementById('scan-target').value.trim();
-        const preset = document.getElementById('scan-preset').value;
         const output = document.getElementById('scan-output');
         const progressDiv = document.getElementById('scan-progress');
         const progressFill = document.getElementById('progress-fill');
@@ -1185,35 +1165,10 @@ Region:        ${countryData.region}
             return;
         }
 
-        let ports = [];
-        switch(preset) {
-            case 'common':
-                ports = [21, 22, 23, 25, 53, 80, 110, 119, 123, 143, 161, 194, 443, 445, 993, 995, 3306, 3389, 5432, 8080];
-                break;
-            case 'web':
-                ports = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000];
-                break;
-            case 'database':
-                ports = [1433, 1521, 3306, 5432, 6379, 27017, 5984, 9200];
-                break;
-            case 'all':
-                for (let i = 1; i <= 1024; i++) ports.push(i);
-                break;
-            case 'custom':
-                const rangeInput = document.getElementById('port-range').value.trim();
-                if (!rangeInput) {
-                    output.textContent = '[ERROR] Please enter port range.';
-                    return;
-                }
-                ports = this.parsePortRange(rangeInput);
-                if (ports.length === 0) {
-                    output.textContent = '[ERROR] Invalid port range format.';
-                    return;
-                }
-                break;
-        }
+        // Common ports to scan
+        const ports = [21, 22, 23, 25, 53, 80, 110, 119, 123, 143, 161, 194, 443, 445, 465, 587, 993, 995, 1433, 1521, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 27017];
 
-        output.innerHTML = `Scanning ${target} (${ports.length} ports)...\n\n`;
+        output.innerHTML = `Scanning ${target}...\n\n`;
         progressDiv.style.display = 'block';
         progressFill.style.width = '0%';
         progressText.textContent = 'Scanning...';
@@ -1232,8 +1187,6 @@ Region:        ${countryData.region}
                 progressText.textContent = 'Complete';
                 
                 const openPorts = data.results.filter(r => r.status === 'open');
-                const closedPorts = data.results.filter(r => r.status === 'closed');
-                const filteredPorts = data.results.filter(r => r.status === 'filtered');
                 
                 output.innerHTML = `Scan results for ${data.target}:\n`;
                 output.innerHTML += `═══════════════════════════════════════\n\n`;
@@ -1243,19 +1196,11 @@ Region:        ${countryData.region}
                     openPorts.forEach(p => {
                         output.innerHTML += `<span class="port-open">  ${p.port}/tcp    open    ${p.service}</span>\n`;
                     });
-                    output.innerHTML += '\n';
+                } else {
+                    output.innerHTML += `<span class="port-closed">No open ports found.</span>\n`;
                 }
                 
-                if (filteredPorts.length > 0) {
-                    output.innerHTML += `<span class="port-filtered">FILTERED PORTS (${filteredPorts.length}):</span>\n`;
-                    filteredPorts.forEach(p => {
-                        output.innerHTML += `<span class="port-filtered">  ${p.port}/tcp    filtered    ${p.service}</span>\n`;
-                    });
-                    output.innerHTML += '\n';
-                }
-                
-                output.innerHTML += `\nSummary: ${openPorts.length} open, ${filteredPorts.length} filtered, ${closedPorts.length} closed\n`;
-                output.innerHTML += `<span style="color: #ff4444; font-weight: bold;">SCANNED BY NEXUS</span>`;
+                output.innerHTML += `\n<span style="color: #ff4444; font-weight: bold;">SCANNED BY NEXUS</span>`;
             } else {
                 output.textContent = `[ERROR] ${data.message}`;
                 progressDiv.style.display = 'none';
@@ -1264,26 +1209,6 @@ Region:        ${countryData.region}
             output.textContent = '[ERROR] Could not connect to server.';
             progressDiv.style.display = 'none';
         }
-    }
-
-    parsePortRange(input) {
-        const ports = [];
-        const parts = input.split(',');
-        
-        for (const part of parts) {
-            const trimmed = part.trim();
-            if (trimmed.includes('-')) {
-                const [start, end] = trimmed.split('-').map(n => parseInt(n.trim()));
-                if (!isNaN(start) && !isNaN(end) && start <= end && start > 0 && end <= 65535) {
-                    for (let i = start; i <= end; i++) ports.push(i);
-                }
-            } else {
-                const port = parseInt(trimmed);
-                if (!isNaN(port) && port > 0 && port <= 65535) ports.push(port);
-            }
-        }
-        
-        return [...new Set(ports)].slice(0, 1000); // Max 1000 ports
     }
 
     clearOutput(outputId) {
