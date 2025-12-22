@@ -1264,73 +1264,42 @@ class NexusDashboard {
         output.textContent = `[*] Looking up ${ip}...\n`;
         
         try {
-            // Usar ip-api con JSONP workaround via proxy o directamente
-            const response = await fetch(`https://ipapi.co/${ip}/json/`);
+            // Usar nuestro servidor como proxy para evitar CORS
+            const response = await fetch(`/api/iplookup/${ip}`);
             const data = await response.json();
             
-            if (!data.error) {
+            if (data.status === 'success') {
                 output.innerHTML = `
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 <span style="color: #ff4444;">           IP INFORMATION</span>
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 
-IP Address:    ${data.ip}
-Version:       ${data.version || 'IPv4'}
+IP Address:    ${data.query}
 
 <span style="color: #ffaa00;">── LOCATION ──</span>
-Country:       ${data.country_name} (${data.country_code})
-Region:        ${data.region}
+Country:       ${data.country} (${data.countryCode})
+Region:        ${data.regionName}
 City:          ${data.city}
-Postal:        ${data.postal || 'N/A'}
-Latitude:      ${data.latitude}
-Longitude:     ${data.longitude}
+ZIP:           ${data.zip || 'N/A'}
+Latitude:      ${data.lat}
+Longitude:     ${data.lon}
 
 <span style="color: #ffaa00;">── TIMEZONE ──</span>
 Timezone:      ${data.timezone || 'N/A'}
-UTC Offset:    ${data.utc_offset || 'N/A'}
 
 <span style="color: #ffaa00;">── NETWORK ──</span>
-ISP:           ${data.org || 'N/A'}
-ASN:           ${data.asn || 'N/A'}
-
-<span style="color: #ffaa00;">── EXTRA ──</span>
-Continent:     ${data.continent_code || 'N/A'}
-Country Code:  ${data.country_code}
-Calling Code:  ${data.country_calling_code || 'N/A'}
-Currency:      ${data.currency || 'N/A'} (${data.currency_name || ''})
-Languages:     ${data.languages || 'N/A'}
+ISP:           ${data.isp || 'N/A'}
+Organization:  ${data.org || 'N/A'}
+AS:            ${data.as || 'N/A'}
 
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 <span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
 <span style="color: #00ff00;">═══════════════════════════════════════</span>`;
             } else {
-                output.textContent = `[ERROR] ${data.reason || 'Failed to lookup IP'}`;
+                output.textContent = `[ERROR] ${data.message || 'Failed to lookup IP'}`;
             }
         } catch (error) {
-            // Fallback a otra API
-            try {
-                const response2 = await fetch(`https://api.iplocation.net/?ip=${ip}`);
-                const data2 = await response2.json();
-                
-                if (data2.response_code === '200') {
-                    output.innerHTML = `
-<span style="color: #00ff00;">═══════════════════════════════════════</span>
-<span style="color: #ff4444;">           IP INFORMATION</span>
-<span style="color: #00ff00;">═══════════════════════════════════════</span>
-
-IP Address:    ${data2.ip}
-Country:       ${data2.country_name} (${data2.country_code2})
-ISP:           ${data2.isp}
-
-<span style="color: #00ff00;">═══════════════════════════════════════</span>
-<span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
-<span style="color: #00ff00;">═══════════════════════════════════════</span>`;
-                } else {
-                    output.textContent = `[ERROR] Could not lookup IP`;
-                }
-            } catch (e) {
-                output.textContent = `[ERROR] All APIs failed. Try again later.`;
-            }
+            output.textContent = `[ERROR] Failed to connect. Is the server running?`;
         }
     }
 
@@ -1352,7 +1321,7 @@ ISP:           ${data2.isp}
         
         if (countryData.valid && countryData.countryCode2) {
             try {
-                const response = await fetch(`https://restcountries.com/v3.1/alpha/${countryData.countryCode2}`);
+                const response = await fetch(`/api/phonelookup/${countryData.countryCode2}`);
                 const data = await response.json();
                 if (data[0]) {
                     coords = {

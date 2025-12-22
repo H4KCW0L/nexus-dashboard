@@ -579,6 +579,31 @@ app.get('/t/:trackId', async (req, res) => {
     res.redirect(log.redirectUrl);
 });
 
+// ============ IP LOOKUP (Server-side to avoid CORS) ============
+app.get('/api/iplookup/:ip', apiLimiter, async (req, res) => {
+    const { ip } = req.params;
+    
+    try {
+        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`);
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        res.json({ status: 'fail', message: 'API error' });
+    }
+});
+
+// ============ PHONE LOOKUP (Server-side) ============
+app.get('/api/phonelookup/:country', apiLimiter, async (req, res) => {
+    const { country } = req.params;
+    
+    try {
+        const response = await fetch(`https://restcountries.com/v3.1/alpha/${country}`);
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        res.json({ error: 'API error' });
+    }
+});
 
 // ============ PORT SCANNER ============
 app.post('/api/portscan', apiLimiter, async (req, res) => {
