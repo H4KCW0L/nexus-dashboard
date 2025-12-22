@@ -4,6 +4,110 @@
     box-sizing: border-box;
 }
 
+/* RGB Animation */
+@keyframes rgbCycle {
+    0% { --rgb-color: #ff0000; }
+    14% { --rgb-color: #ff7f00; }
+    28% { --rgb-color: #ffff00; }
+    42% { --rgb-color: #00ff00; }
+    57% { --rgb-color: #0000ff; }
+    71% { --rgb-color: #4b0082; }
+    85% { --rgb-color: #9400d3; }
+    100% { --rgb-color: #ff0000; }
+}
+
+@keyframes rgbGlow {
+    0% { 
+        border-color: #ff0000;
+        box-shadow: 0 0 5px #ff000050;
+    }
+    14% { 
+        border-color: #ff7f00;
+        box-shadow: 0 0 5px #ff7f0050;
+    }
+    28% { 
+        border-color: #ffff00;
+        box-shadow: 0 0 5px #ffff0050;
+    }
+    42% { 
+        border-color: #00ff00;
+        box-shadow: 0 0 5px #00ff0050;
+    }
+    57% { 
+        border-color: #0000ff;
+        box-shadow: 0 0 5px #0000ff50;
+    }
+    71% { 
+        border-color: #4b0082;
+        box-shadow: 0 0 5px #4b008250;
+    }
+    85% { 
+        border-color: #9400d3;
+        box-shadow: 0 0 5px #9400d350;
+    }
+    100% { 
+        border-color: #ff0000;
+        box-shadow: 0 0 5px #ff000050;
+    }
+}
+
+@keyframes rgbText {
+    0% { color: #ff0000; }
+    14% { color: #ff7f00; }
+    28% { color: #ffff00; }
+    42% { color: #00ff00; }
+    57% { color: #0000ff; }
+    71% { color: #4b0082; }
+    85% { color: #9400d3; }
+    100% { color: #ff0000; }
+}
+
+@keyframes rgbBg {
+    0% { background: #ff0000; }
+    14% { background: #ff7f00; }
+    28% { background: #ffff00; }
+    42% { background: #00ff00; }
+    57% { background: #0000ff; }
+    71% { background: #4b0082; }
+    85% { background: #9400d3; }
+    100% { background: #ff0000; }
+}
+
+@keyframes rgbBorderLeft {
+    0% { border-left-color: #ff0000; }
+    14% { border-left-color: #ff7f00; }
+    28% { border-left-color: #ffff00; }
+    42% { border-left-color: #00ff00; }
+    57% { border-left-color: #0000ff; }
+    71% { border-left-color: #4b0082; }
+    85% { border-left-color: #9400d3; }
+    100% { border-left-color: #ff0000; }
+}
+
+@keyframes rgbBorderBottom {
+    0% { border-bottom-color: #ff0000; }
+    14% { border-bottom-color: #ff7f00; }
+    28% { border-bottom-color: #ffff00; }
+    42% { border-bottom-color: #00ff00; }
+    57% { border-bottom-color: #0000ff; }
+    71% { border-bottom-color: #4b0082; }
+    85% { border-bottom-color: #9400d3; }
+    100% { border-bottom-color: #ff0000; }
+}
+
+/* RGB Classes */
+.rgb-border {
+    animation: rgbGlow 7s linear infinite;
+}
+
+.rgb-text {
+    animation: rgbText 7s linear infinite;
+}
+
+.rgb-bg {
+    animation: rgbBg 7s linear infinite;
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background: #0a0a0a;
@@ -27,18 +131,19 @@ body {
 
 .login-box {
     background: #1a1a1a;
-    border: 1px solid #ff4444;
+    border: 1px solid;
     border-radius: 10px;
     padding: 40px;
     text-align: center;
     min-width: 350px;
+    animation: rgbGlow 7s linear infinite;
 }
 
 .login-title {
-    color: #ff4444;
     font-size: 20px;
     margin-bottom: 30px;
     letter-spacing: 2px;
+    animation: rgbText 7s linear infinite;
 }
 
 .login-form {
@@ -64,25 +169,25 @@ body {
 
 .login-btn {
     padding: 12px;
-    background: #ff4444;
     border: none;
     border-radius: 5px;
     color: white;
     font-size: 14px;
     font-weight: bold;
     cursor: pointer;
-    transition: background 0.3s;
+    transition: filter 0.3s;
     margin-top: 10px;
+    animation: rgbBg 7s linear infinite;
 }
 
 .login-btn:hover {
-    background: #ff6666;
+    filter: brightness(1.2);
 }
 
 .login-error {
-    color: #ff4444;
     font-size: 12px;
     min-height: 18px;
+    animation: rgbText 7s linear infinite;
 }
 
 /* Loading Overlay */
@@ -140,7 +245,8 @@ body {
     grid-template-rows: 60px 1fr 30px;
     grid-template-columns: 200px 1fr;
     height: 100vh;
-    border: 1px solid #ff4444;
+    border: 1px solid;
+    animation: rgbGlow 7s linear infinite;
 }
 
 /* Header */
@@ -151,7 +257,8 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 0 20px;
-    border-bottom: 1px solid #ff4444;
+    border-bottom: 1px solid;
+    animation: rgbBorderBottom 7s linear infinite;
 }
 
 .thanks-section {
@@ -161,8 +268,8 @@ body {
 }
 
 .thanks-title {
-    color: #ff4444;
     font-weight: bold;
+    animation: rgbText 7s linear infinite;
     font-size: 13px;
 }
 
@@ -200,8 +307,9 @@ body {
 .sidebar {
     grid-area: sidebar;
     background: #1a1a1a;
-    border-right: 1px solid #ff4444;
+    border-right: 1px solid;
     padding: 20px 0;
+    animation: rgbGlow 7s linear infinite;
 }
 
 .logo {
@@ -213,14 +321,14 @@ body {
 
 .logo-icon {
     font-size: 28px;
-    color: #ff4444;
     margin-right: 10px;
+    animation: rgbText 7s linear infinite;
 }
 
 .logo-text h2 {
-    color: #ff4444;
     font-size: 22px;
     font-weight: bold;
+    animation: rgbText 7s linear infinite;
 }
 
 .logo-text span {
@@ -245,13 +353,12 @@ body {
 
 .nav-link:hover {
     background: #2a2a2a;
-    border-left-color: #ff4444;
+    animation: rgbBorderLeft 7s linear infinite;
 }
 
 .nav-link.active {
     background: #2a2a2a;
-    border-left-color: #ff4444;
-    color: #ff4444;
+    animation: rgbBorderLeft 7s linear infinite, rgbText 7s linear infinite;
 }
 
 .nav-link span {
@@ -298,9 +405,9 @@ body {
 }
 
 .tool-panel h2 {
-    color: #ff4444;
     margin-bottom: 15px;
     font-size: 20px;
+    animation: rgbText 7s linear infinite;
 }
 
 .tool-controls {
@@ -337,12 +444,12 @@ body {
 }
 
 .btn-primary {
-    background: #ff4444;
     color: white;
+    animation: rgbBg 7s linear infinite;
 }
 
 .btn-primary:hover {
-    background: #ff6666;
+    filter: brightness(1.2);
 }
 
 .btn-secondary {
@@ -376,7 +483,7 @@ body {
     font-size: 12px;
     font-weight: 500;
     border-bottom: 1px solid #333;
-    color: #ff4444;
+    animation: rgbText 7s linear infinite;
 }
 
 .output-content {
@@ -395,11 +502,12 @@ body {
 .footer {
     grid-area: footer;
     background: #1a1a1a;
-    border-top: 1px solid #ff4444;
+    border-top: 1px solid;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     padding: 0 20px;
+    animation: rgbGlow 7s linear infinite;
 }
 
 .footer-stats {
@@ -525,8 +633,8 @@ body {
 }
 
 .chat-username {
-    color: #ff4444;
     font-weight: bold;
+    animation: rgbText 7s linear infinite;
 }
 
 .chat-input-area {
@@ -585,7 +693,6 @@ body {
 .member-avatar {
     width: 60px;
     height: 60px;
-    background: #ff4444;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -595,6 +702,7 @@ body {
     color: white;
     flex-shrink: 0;
     overflow: hidden;
+    animation: rgbBg 7s linear infinite;
 }
 
 .member-avatar img {
@@ -637,8 +745,8 @@ body {
 }
 
 .member-role.owner {
-    background: #ff4444;
     color: white;
+    animation: rgbBg 7s linear infinite;
 }
 
 .member-role.admin {
@@ -683,7 +791,6 @@ body {
 .profile-avatar {
     width: 120px;
     height: 120px;
-    background: #ff4444;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -691,8 +798,9 @@ body {
     font-size: 48px;
     font-weight: bold;
     color: white;
-    border: 3px solid #333;
+    border: 3px solid;
     overflow: hidden;
+    animation: rgbBg 7s linear infinite, rgbGlow 7s linear infinite;
 }
 
 .profile-avatar img {
@@ -743,8 +851,8 @@ body {
 }
 
 .profile-role.owner {
-    background: #ff4444;
     color: white;
+    animation: rgbBg 7s linear infinite;
 }
 
 .profile-role.admin {
@@ -1191,7 +1299,7 @@ body {
 .emoji-picker {
     position: absolute;
     bottom: 60px;
-    left: 40px;
+    left: 10px;
     background: #1a1a1a;
     border: 1px solid #ff4444;
     border-radius: 8px;
@@ -1200,8 +1308,10 @@ body {
     grid-template-columns: repeat(8, 1fr);
     gap: 5px;
     width: 280px;
-    z-index: 100;
+    max-width: calc(100vw - 40px);
+    z-index: 1000;
     box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    overflow: hidden;
 }
 
 .emoji-item {
@@ -1211,6 +1321,8 @@ body {
     border-radius: 5px;
     text-align: center;
     transition: background 0.2s;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .emoji-item:hover {
@@ -2028,10 +2140,12 @@ body {
     }
     
     .emoji-picker {
+        position: fixed;
         left: 10px;
         right: 10px;
+        bottom: 80px;
         width: auto;
-        bottom: 70px;
+        max-width: none;
         grid-template-columns: repeat(6, 1fr);
     }
     
@@ -2320,5 +2434,135 @@ body {
     .chat-input,
     textarea {
         font-size: 16px;
+    }
+}
+
+
+/* ============ NOTES STYLES ============ */
+.notes-panel {
+    height: 100%;
+}
+
+.notes-create {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #333;
+}
+
+.notes-content {
+    min-height: 100px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.notes-empty {
+    color: #666;
+    text-align: center;
+    padding: 40px;
+    font-size: 14px;
+}
+
+.note-card {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.note-card:hover {
+    border-color: #ff4444;
+}
+
+.note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: #151515;
+    border-bottom: 1px solid #333;
+}
+
+.note-title {
+    font-size: 14px;
+    font-weight: bold;
+    animation: rgbText 7s linear infinite;
+}
+
+.note-delete {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 5px;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.note-delete:hover {
+    color: #ff4444;
+}
+
+.note-content {
+    padding: 15px;
+    font-size: 13px;
+    color: #ccc;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.note-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 15px;
+    background: #151515;
+    border-top: 1px solid #333;
+    font-size: 11px;
+    color: #666;
+}
+
+.note-author {
+    color: #888;
+}
+
+.note-date {
+    color: #555;
+}
+
+/* Notes responsive */
+@media screen and (max-width: 768px) {
+    .notes-create {
+        padding-bottom: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .note-header {
+        padding: 10px 12px;
+    }
+    
+    .note-title {
+        font-size: 13px;
+    }
+    
+    .note-content {
+        padding: 12px;
+        font-size: 12px;
+    }
+    
+    .note-footer {
+        flex-direction: column;
+        gap: 5px;
+        padding: 8px 12px;
     }
 }

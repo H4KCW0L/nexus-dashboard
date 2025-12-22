@@ -187,6 +187,7 @@ const activePings = new Map();
 // Database file
 const DB_FILE = 'users.json';
 const SOUNDS_FILE = 'voicesounds.json';
+const NOTES_FILE = 'notes.json';
 
 // Load or create users database
 function loadUsers() {
@@ -228,8 +229,23 @@ function saveVoiceSounds(sounds) {
     fs.writeFileSync(SOUNDS_FILE, JSON.stringify(sounds, null, 2));
 }
 
+// Notes system
+function loadNotes() {
+    try {
+        if (fs.existsSync(NOTES_FILE)) {
+            return JSON.parse(fs.readFileSync(NOTES_FILE, 'utf8'));
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveNotes(notes) {
+    fs.writeFileSync(NOTES_FILE, JSON.stringify(notes, null, 2));
+}
+
 let voiceSounds = loadVoiceSounds();
 let registeredUsers = loadUsers();
+let notes = loadNotes();
 const onlineUsers = new Map();
 
 // ============ API ROUTES CON PROTECCIÓN ============
@@ -851,6 +867,65 @@ app.post('/api/voice/sounds/system', apiLimiter, (req, res) => {
     if (!voiceSounds.system) voiceSounds.system = {};
     voiceSounds.system[soundType] = soundData ? { data: soundData, name: soundName } : null;
     saveVoiceSounds(voiceSounds);
+    
+    res.json({ success: true });
+});
+
+// ============ NOTES SYSTEM ============
+
+// Get all notes (everyone can read)
+app.get('/api/notes', apiLimiter, (req, res) => {
+    res.json(notes);
+});
+
+// Create note (admin/owner only)
+app.post('/api/notes', apiLimiter, (req, res) => {
+    const { username, title, content } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        return res.json({ success: false, message: 'No permission' });
+    }
+    
+    if (!title || !content) {
+        return res.json({ success: false, message: 'Title and content required' });
+    }
+    
+    if (title.length > 100 || content.length > 5000) {
+        return res.json({ success: false, message: 'Title or content too long' });
+    }
+    
+    const note = {
+        id: Date.now().toString(36),
+        title,
+        content,
+        author: username,
+        createdAt: new Date().toISOString()
+    };
+    
+    notes.unshift(note);
+    saveNotes(notes);
+    
+    res.json({ success: true, note });
+});
+
+// Delete note (admin/owner only)
+app.delete('/api/notes/:id', apiLimiter, (req, res) => {
+    const { id } = req.params;
+    const { username } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        return res.json({ success: false, message: 'No permission' });
+    }
+    
+    const index = notes.findIndex(n => n.id === id);
+    if (index === -1) {
+        return res.json({ success: false, message: 'Note not found' });
+    }
+    
+    notes.splice(index, 1);
+    saveNotes(notes);
     
     res.json({ success: true });
 });

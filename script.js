@@ -203,6 +203,7 @@ class NexusDashboard {
             'chat': this.getChatHTML(),
             'voice-chat': this.getVoiceChatHTML(),
             'members': this.getMembersHTML(),
+            'notes': this.getNotesHTML(),
             'profile': this.getProfileHTML()
         };
 
@@ -395,6 +396,132 @@ class NexusDashboard {
         `;
     }
 
+    getNotesHTML() {
+        const canWrite = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+        return `
+            <div class="tool-panel notes-panel">
+                <h2>Notes</h2>
+                ${canWrite ? `
+                <div class="notes-create">
+                    <input type="text" class="tool-input" id="note-title" placeholder="Note title..." maxlength="100">
+                    <textarea class="tool-input notes-content" id="note-content" placeholder="Write your note here..." maxlength="5000"></textarea>
+                    <button class="btn-primary" id="create-note-btn">Create Note</button>
+                </div>
+                ` : ''}
+                <div class="notes-list" id="notes-list">
+                    <div class="loading-members">Loading notes...</div>
+                </div>
+            </div>
+        `;
+    }
+
+    async loadNotes() {
+        try {
+            const response = await fetch('/api/notes');
+            const notesList = await response.json();
+            const canDelete = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+            
+            const container = document.getElementById('notes-list');
+            
+            if (notesList.length === 0) {
+                container.innerHTML = '<div class="notes-empty">No notes yet.</div>';
+                return;
+            }
+            
+            container.innerHTML = notesList.map(note => `
+                <div class="note-card" data-id="${note.id}">
+                    <div class="note-header">
+                        <span class="note-title">${this.escapeHtml(note.title)}</span>
+                        ${canDelete ? `<button class="note-delete" data-id="${note.id}">✕</button>` : ''}
+                    </div>
+                    <div class="note-content">${this.escapeHtml(note.content).replace(/\n/g, '<br>')}</div>
+                    <div class="note-footer">
+                        <span class="note-author">By ${note.author}</span>
+                        <span class="note-date">${new Date(note.createdAt).toLocaleString()}</span>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Attach delete listeners
+            if (canDelete) {
+                document.querySelectorAll('.note-delete').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const id = e.target.dataset.id;
+                        if (confirm('Delete this note?')) {
+                            await this.deleteNote(id);
+                        }
+                    });
+                });
+            }
+            
+            // Attach create listener
+            const createBtn = document.getElementById('create-note-btn');
+            if (createBtn) {
+                createBtn.addEventListener('click', () => this.createNote());
+            }
+        } catch (e) {
+            document.getElementById('notes-list').innerHTML = '<div class="chat-error">Could not load notes.</div>';
+        }
+    }
+
+    async createNote() {
+        const title = document.getElementById('note-title').value.trim();
+        const content = document.getElementById('note-content').value.trim();
+        
+        if (!title || !content) {
+            alert('Please fill in title and content');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    title,
+                    content
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('note-title').value = '';
+                document.getElementById('note-content').value = '';
+                this.loadNotes();
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error creating note');
+        }
+    }
+
+    async deleteNote(id) {
+        try {
+            const response = await fetch(`/api/notes/${id}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                this.loadNotes();
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error deleting note');
+        }
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     getProfileHTML() {
         const user = currentUser || { username: 'Guest', role: 'member', bio: '', avatar: '' };
         const avatarDisplay = user.avatar ? `<img src="${user.avatar}" class="profile-avatar-img">` : user.username.charAt(0).toUpperCase();
@@ -464,6 +591,9 @@ class NexusDashboard {
                 break;
             case 'members':
                 this.loadMembers();
+                break;
+            case 'notes':
+                this.loadNotes();
                 break;
             case 'profile':
                 this.initProfile();
