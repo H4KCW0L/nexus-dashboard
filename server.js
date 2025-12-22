@@ -188,6 +188,7 @@ const activePings = new Map();
 const DB_FILE = 'users.json';
 const SOUNDS_FILE = 'voicesounds.json';
 const NOTES_FILE = 'notes.json';
+const STICKERS_FILE = 'stickers.json';
 
 // Load or create users database
 function loadUsers() {
@@ -243,9 +244,24 @@ function saveNotes(notes) {
     fs.writeFileSync(NOTES_FILE, JSON.stringify(notes, null, 2));
 }
 
+// Stickers system
+function loadStickers() {
+    try {
+        if (fs.existsSync(STICKERS_FILE)) {
+            return JSON.parse(fs.readFileSync(STICKERS_FILE, 'utf8'));
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveStickers(stickers) {
+    fs.writeFileSync(STICKERS_FILE, JSON.stringify(stickers, null, 2));
+}
+
 let voiceSounds = loadVoiceSounds();
 let registeredUsers = loadUsers();
 let notes = loadNotes();
+let stickers = loadStickers();
 const onlineUsers = new Map();
 
 // ============ API ROUTES CON PROTECCIÓN ============
@@ -930,6 +946,68 @@ app.delete('/api/notes/:id', apiLimiter, (req, res) => {
     res.json({ success: true });
 });
 
+// ============ STICKERS SYSTEM ============
+
+// Get all stickers (everyone can use)
+app.get('/api/stickers', apiLimiter, (req, res) => {
+    res.json(stickers);
+});
+
+// Add sticker (admin/owner only)
+app.post('/api/stickers', apiLimiter, (req, res) => {
+    const { username, data } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        return res.json({ success: false, message: 'No permission' });
+    }
+    
+    if (!data) {
+        return res.json({ success: false, message: 'Image required' });
+    }
+    
+    if (data.length > 500000) {
+        return res.json({ success: false, message: 'Image too large (max 500KB)' });
+    }
+    
+    if (stickers.length >= 50) {
+        return res.json({ success: false, message: 'Max 50 stickers allowed' });
+    }
+    
+    const sticker = {
+        id: Date.now().toString(36),
+        url: data,
+        addedBy: username,
+        createdAt: new Date().toISOString()
+    };
+    
+    stickers.push(sticker);
+    saveStickers(stickers);
+    
+    res.json({ success: true, sticker });
+});
+
+// Delete sticker (admin/owner only)
+app.delete('/api/stickers/:id', apiLimiter, (req, res) => {
+    const { id } = req.params;
+    const { username } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+        return res.json({ success: false, message: 'No permission' });
+    }
+    
+    const index = stickers.findIndex(s => s.id === id);
+    if (index === -1) {
+        return res.json({ success: false, message: 'Sticker not found' });
+    }
+    
+    stickers.splice(index, 1);
+    saveStickers(stickers);
+    
+    res.json({ success: true });
+});
+
 // ============ SOCKET.IO CON PROTECCIÓN ============
 const voiceRooms = new Map();
 
@@ -1085,6 +1163,14 @@ io.on('connection', (socket) => {
             if (!msg.content || msg.content.length > 5000000) return; // Max 5MB
             io.emit('message', {
                 type: 'image',
+                username,
+                content: msg.content,
+                time: new Date().toLocaleTimeString()
+            });
+        } else if (msg.type === 'sticker') {
+            if (!msg.content || msg.content.length > 1000) return;
+            io.emit('message', {
+                type: 'sticker',
                 username,
                 content: msg.content,
                 time: new Date().toLocaleTimeString()

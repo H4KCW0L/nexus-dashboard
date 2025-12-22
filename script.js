@@ -337,6 +337,13 @@ class NexusDashboard {
                                     <polyline points="21 15 16 10 5 21"></polyline>
                                 </svg>
                             </button>
+                            <button class="btn-icon" id="sticker-btn" title="Stickers">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"></path>
+                                    <path d="M12 12l6-6"></path>
+                                    <path d="M12 12v10"></path>
+                                </svg>
+                            </button>
                             <button class="btn-icon" id="emoji-btn" title="Emojis">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="12" cy="12" r="10"></circle>
@@ -346,6 +353,14 @@ class NexusDashboard {
                                 </svg>
                             </button>
                             <div class="emoji-picker" id="emoji-picker" style="display:none;"></div>
+                            <div class="sticker-picker" id="sticker-picker" style="display:none;">
+                                <div class="sticker-tabs">
+                                    <button class="sticker-tab active" data-tab="default">Default</button>
+                                    <button class="sticker-tab" data-tab="custom">Custom</button>
+                                </div>
+                                <div class="sticker-content" id="sticker-content"></div>
+                                ${isAdmin ? '<div class="sticker-upload"><input type="file" id="sticker-file" accept="image/*" style="display:none;"><button class="btn-secondary btn-small" id="add-sticker-btn">+ Add Sticker</button></div>' : ''}
+                            </div>
                             <input type="text" class="chat-input" id="chat-input" placeholder="Type a message...">
                             <button class="btn-primary" id="chat-send">Send</button>
                             ${isAdmin ? '<button class="btn-secondary" id="pin-msg-btn" title="Pin Message">PIN</button>' : ''}
@@ -872,6 +887,9 @@ class NexusDashboard {
 
         // Emoji picker
         this.initEmojiPicker();
+        
+        // Sticker picker
+        this.initStickerPicker();
 
         // Pin message (admin only)
         const pinBtn = document.getElementById('pin-msg-btn');
@@ -892,6 +910,7 @@ class NexusDashboard {
     initEmojiPicker() {
         const emojiBtn = document.getElementById('emoji-btn');
         const emojiPicker = document.getElementById('emoji-picker');
+        const stickerPicker = document.getElementById('sticker-picker');
         
         const emojis = [
             '😀', '😂', '😍', '🥰', '😎', '🤔', '😢', '😡', '🤯', '🥳',
@@ -904,6 +923,7 @@ class NexusDashboard {
         
         emojiBtn.onclick = (e) => {
             e.stopPropagation();
+            stickerPicker.style.display = 'none';
             emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'grid' : 'none';
         };
         
@@ -916,9 +936,157 @@ class NexusDashboard {
             };
         });
         
-        document.addEventListener('click', () => {
-            emojiPicker.style.display = 'none';
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.emoji-picker') && !e.target.closest('#emoji-btn')) {
+                emojiPicker.style.display = 'none';
+            }
+            if (!e.target.closest('.sticker-picker') && !e.target.closest('#sticker-btn')) {
+                stickerPicker.style.display = 'none';
+            }
         });
+    }
+
+    async initStickerPicker() {
+        const stickerBtn = document.getElementById('sticker-btn');
+        const stickerPicker = document.getElementById('sticker-picker');
+        const emojiPicker = document.getElementById('emoji-picker');
+        const stickerContent = document.getElementById('sticker-content');
+        
+        // Default stickers (URLs de stickers gratuitos)
+        this.defaultStickers = [
+            'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif',
+            'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif',
+            'https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif',
+            'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif',
+            'https://media.giphy.com/media/l41lGvinEgARjB2HC/giphy.gif',
+            'https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif',
+            'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif',
+            'https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif'
+        ];
+        
+        // Load custom stickers from server
+        await this.loadCustomStickers();
+        
+        stickerBtn.onclick = (e) => {
+            e.stopPropagation();
+            emojiPicker.style.display = 'none';
+            stickerPicker.style.display = stickerPicker.style.display === 'none' ? 'block' : 'none';
+            this.renderStickers('default');
+        };
+        
+        // Tab switching
+        stickerPicker.querySelectorAll('.sticker-tab').forEach(tab => {
+            tab.onclick = (e) => {
+                e.stopPropagation();
+                stickerPicker.querySelectorAll('.sticker-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this.renderStickers(tab.dataset.tab);
+            };
+        });
+        
+        // Add sticker button (admin only)
+        const addStickerBtn = document.getElementById('add-sticker-btn');
+        const stickerFile = document.getElementById('sticker-file');
+        if (addStickerBtn && stickerFile) {
+            addStickerBtn.onclick = (e) => {
+                e.stopPropagation();
+                stickerFile.click();
+            };
+            stickerFile.onchange = (e) => this.uploadCustomSticker(e.target.files[0]);
+        }
+    }
+
+    async loadCustomStickers() {
+        try {
+            const response = await fetch('/api/stickers');
+            this.customStickers = await response.json();
+        } catch (e) {
+            this.customStickers = [];
+        }
+    }
+
+    renderStickers(tab) {
+        const stickerContent = document.getElementById('sticker-content');
+        const stickers = tab === 'default' ? this.defaultStickers : this.customStickers;
+        const isAdmin = currentUser && (currentUser.role === 'owner' || currentUser.role === 'admin');
+        
+        if (stickers.length === 0) {
+            stickerContent.innerHTML = '<div class="sticker-empty">No stickers yet</div>';
+            return;
+        }
+        
+        stickerContent.innerHTML = stickers.map((url, i) => `
+            <div class="sticker-item" data-url="${typeof url === 'string' ? url : url.url}">
+                <img src="${typeof url === 'string' ? url : url.url}" alt="sticker">
+                ${tab === 'custom' && isAdmin ? `<button class="sticker-delete" data-id="${url.id || i}">×</button>` : ''}
+            </div>
+        `).join('');
+        
+        // Click to send sticker
+        stickerContent.querySelectorAll('.sticker-item').forEach(item => {
+            item.onclick = (e) => {
+                if (e.target.classList.contains('sticker-delete')) return;
+                this.sendSticker(item.dataset.url);
+                document.getElementById('sticker-picker').style.display = 'none';
+            };
+        });
+        
+        // Delete sticker (admin only)
+        stickerContent.querySelectorAll('.sticker-delete').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                await this.deleteCustomSticker(btn.dataset.id);
+            };
+        });
+    }
+
+    sendSticker(url) {
+        if (this.socket) {
+            this.socket.emit('chatMessage', { type: 'sticker', content: url });
+        }
+    }
+
+    async uploadCustomSticker(file) {
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const response = await fetch('/api/stickers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: currentUser.username,
+                        data: e.target.result
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    await this.loadCustomStickers();
+                    this.renderStickers('custom');
+                } else {
+                    alert(result.message);
+                }
+            } catch (err) {
+                alert('Error uploading sticker');
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async deleteCustomSticker(id) {
+        try {
+            const response = await fetch(`/api/stickers/${id}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username })
+            });
+            const result = await response.json();
+            if (result.success) {
+                await this.loadCustomStickers();
+                this.renderStickers('custom');
+            }
+        } catch (e) {}
     }
 
     async loadPinnedMessage() {
@@ -1062,6 +1230,14 @@ class NexusDashboard {
                 <div class="chat-image-container">
                     <img src="${msg.content}" class="chat-image" onclick="window.open('${msg.content}', '_blank')">
                 </div>`;
+        } else if (msg.type === 'sticker') {
+            msgElement.className = 'chat-message user';
+            msgElement.innerHTML = `
+                <span class="chat-time">[${msg.time}]</span> 
+                <span class="chat-username">${msg.username}:</span>
+                <div class="chat-sticker-container">
+                    <img src="${msg.content}" class="chat-sticker">
+                </div>`;
         } else {
             msgElement.className = 'chat-message user';
             const text = msg.text || msg.content || '';
@@ -1088,33 +1264,57 @@ class NexusDashboard {
         output.textContent = `[*] Looking up ${ip}...\n`;
         
         try {
-            const response = await fetch(`http://ip-api.com/json/${ip}`);
+            // Usar API que soporta HTTPS
+            const response = await fetch(`https://ipwho.is/${ip}`);
             const data = await response.json();
             
-            if (data.status === 'success') {
+            if (data.success !== false) {
                 output.innerHTML = `
-IP Address:    ${data.query}
-Country:       ${data.country} (${data.countryCode})
-Region:        ${data.regionName}
-City:          ${data.city}
-ZIP:           ${data.zip}
-Latitude:      ${data.lat}
-Longitude:     ${data.lon}
-Timezone:      ${data.timezone}
-ISP:           ${data.isp}
-Organization:  ${data.org}
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444;">           IP INFORMATION</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
 
-<span style="color: #ff4444; font-weight: bold;">UBICAU BY NEXUS</span>`;
+IP Address:    ${data.ip}
+Type:          ${data.type || 'N/A'}
+
+<span style="color: #ffaa00;">── LOCATION ──</span>
+Country:       ${data.country} (${data.country_code})
+Region:        ${data.region}
+City:          ${data.city}
+Postal:        ${data.postal || 'N/A'}
+Latitude:      ${data.latitude}
+Longitude:     ${data.longitude}
+
+<span style="color: #ffaa00;">── TIMEZONE ──</span>
+Timezone:      ${data.timezone?.id || 'N/A'}
+UTC Offset:    ${data.timezone?.utc || 'N/A'}
+Current Time:  ${data.timezone?.current_time || 'N/A'}
+
+<span style="color: #ffaa00;">── NETWORK ──</span>
+ISP:           ${data.connection?.isp || 'N/A'}
+Organization:  ${data.connection?.org || 'N/A'}
+ASN:           ${data.connection?.asn || 'N/A'}
+Domain:        ${data.connection?.domain || 'N/A'}
+
+<span style="color: #ffaa00;">── FLAGS ──</span>
+Continent:     ${data.continent}
+Is EU:         ${data.is_eu ? 'Yes' : 'No'}
+Calling Code:  ${data.calling_code || 'N/A'}
+Currency:      ${data.currency?.code || 'N/A'} (${data.currency?.symbol || ''})
+
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>`;
             } else {
                 output.textContent = `[ERROR] ${data.message || 'Failed to lookup IP'}`;
             }
         } catch (error) {
-            output.textContent = `[ERROR] Failed to connect to API`;
+            output.textContent = `[ERROR] Failed to connect to API: ${error.message}`;
         }
     }
 
     // PHONE LOOKUP
-    lookupPhone() {
+    async lookupPhone() {
         const phoneRaw = document.getElementById('phone-input').value.trim();
         const output = document.getElementById('phone-output');
         
@@ -1123,44 +1323,103 @@ Organization:  ${data.org}
         const phone = phoneRaw.replace(/[\s\-\(\)]/g, '');
         output.textContent = `[*] Looking up ${phoneRaw}...\n`;
         
-        setTimeout(() => {
-            const countryData = this.getPhoneCountry(phone);
-            output.innerHTML = `
+        // Obtener datos del país basado en el prefijo
+        const countryData = this.getPhoneCountry(phone);
+        
+        // Si tenemos país, buscar coordenadas
+        let coords = { lat: 'N/A', lon: 'N/A', capital: 'N/A', timezone: 'N/A' };
+        
+        if (countryData.valid && countryData.countryCode2) {
+            try {
+                const response = await fetch(`https://restcountries.com/v3.1/alpha/${countryData.countryCode2}`);
+                const data = await response.json();
+                if (data[0]) {
+                    coords = {
+                        lat: data[0].latlng?.[0] || 'N/A',
+                        lon: data[0].latlng?.[1] || 'N/A',
+                        capital: data[0].capital?.[0] || 'N/A',
+                        timezone: data[0].timezones?.[0] || 'N/A',
+                        population: data[0].population?.toLocaleString() || 'N/A',
+                        languages: Object.values(data[0].languages || {}).join(', ') || 'N/A',
+                        currency: Object.keys(data[0].currencies || {})[0] || 'N/A'
+                    };
+                }
+            } catch (e) {}
+        }
+        
+        output.innerHTML = `
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444;">         PHONE INFORMATION</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+
 Phone Number:  ${phoneRaw}
 Normalized:    ${phone}
-Valid:         ${countryData.valid ? 'Yes' : 'Unknown'}
+Valid Format:  ${countryData.valid ? 'Yes' : 'Unknown'}
+
+<span style="color: #ffaa00;">── LOCATION ──</span>
 Country:       ${countryData.country}
 Country Code:  ${countryData.code}
+ISO Code:      ${countryData.countryCode2 || 'N/A'}
+Region:        ${countryData.region}
+Capital:       ${coords.capital}
+
+<span style="color: #ffaa00;">── COORDINATES ──</span>
+Latitude:      ${coords.lat}
+Longitude:     ${coords.lon}
+Timezone:      ${coords.timezone}
+
+<span style="color: #ffaa00;">── CARRIER INFO ──</span>
 Type:          ${countryData.type}
 Carrier:       ${countryData.carrier}
-Region:        ${countryData.region}
 
-<span style="color: #ff4444; font-weight: bold;">UBICAU BY NEXUS</span>`;
-        }, 1000);
+<span style="color: #ffaa00;">── COUNTRY INFO ──</span>
+Population:    ${coords.population || 'N/A'}
+Languages:     ${coords.languages || 'N/A'}
+Currency:      ${coords.currency || 'N/A'}
+
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>`;
     }
 
     getPhoneCountry(phone) {
         const prefixes = {
-            '+1': { country: 'United States/Canada', code: '+1', region: 'North America', carrier: 'Unknown', type: 'Mobile/Landline' },
-            '+54': { country: 'Argentina', code: '+54', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+52': { country: 'Mexico', code: '+52', region: 'North America', carrier: 'Unknown', type: 'Mobile' },
-            '+44': { country: 'United Kingdom', code: '+44', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
-            '+34': { country: 'Spain', code: '+34', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
-            '+49': { country: 'Germany', code: '+49', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
-            '+33': { country: 'France', code: '+33', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
-            '+55': { country: 'Brazil', code: '+55', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+56': { country: 'Chile', code: '+56', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+57': { country: 'Colombia', code: '+57', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+58': { country: 'Venezuela', code: '+58', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+51': { country: 'Peru', code: '+51', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
-            '+86': { country: 'China', code: '+86', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
-            '+81': { country: 'Japan', code: '+81', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
-            '+91': { country: 'India', code: '+91', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+1': { country: 'United States/Canada', code: '+1', countryCode2: 'US', region: 'North America', carrier: 'Unknown', type: 'Mobile/Landline' },
+            '+54': { country: 'Argentina', code: '+54', countryCode2: 'AR', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+52': { country: 'Mexico', code: '+52', countryCode2: 'MX', region: 'North America', carrier: 'Unknown', type: 'Mobile' },
+            '+44': { country: 'United Kingdom', code: '+44', countryCode2: 'GB', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+34': { country: 'Spain', code: '+34', countryCode2: 'ES', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+49': { country: 'Germany', code: '+49', countryCode2: 'DE', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+33': { country: 'France', code: '+33', countryCode2: 'FR', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+55': { country: 'Brazil', code: '+55', countryCode2: 'BR', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+56': { country: 'Chile', code: '+56', countryCode2: 'CL', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+57': { country: 'Colombia', code: '+57', countryCode2: 'CO', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+58': { country: 'Venezuela', code: '+58', countryCode2: 'VE', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+51': { country: 'Peru', code: '+51', countryCode2: 'PE', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+86': { country: 'China', code: '+86', countryCode2: 'CN', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+81': { country: 'Japan', code: '+81', countryCode2: 'JP', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+91': { country: 'India', code: '+91', countryCode2: 'IN', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+7': { country: 'Russia', code: '+7', countryCode2: 'RU', region: 'Europe/Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+39': { country: 'Italy', code: '+39', countryCode2: 'IT', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+61': { country: 'Australia', code: '+61', countryCode2: 'AU', region: 'Oceania', carrier: 'Unknown', type: 'Mobile' },
+            '+82': { country: 'South Korea', code: '+82', countryCode2: 'KR', region: 'Asia', carrier: 'Unknown', type: 'Mobile' },
+            '+31': { country: 'Netherlands', code: '+31', countryCode2: 'NL', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+48': { country: 'Poland', code: '+48', countryCode2: 'PL', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+46': { country: 'Sweden', code: '+46', countryCode2: 'SE', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+41': { country: 'Switzerland', code: '+41', countryCode2: 'CH', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+32': { country: 'Belgium', code: '+32', countryCode2: 'BE', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+351': { country: 'Portugal', code: '+351', countryCode2: 'PT', region: 'Europe', carrier: 'Unknown', type: 'Mobile' },
+            '+593': { country: 'Ecuador', code: '+593', countryCode2: 'EC', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+591': { country: 'Bolivia', code: '+591', countryCode2: 'BO', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+595': { country: 'Paraguay', code: '+595', countryCode2: 'PY', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
+            '+598': { country: 'Uruguay', code: '+598', countryCode2: 'UY', region: 'South America', carrier: 'Unknown', type: 'Mobile' },
         };
-        for (const [prefix, data] of Object.entries(prefixes)) {
+        // Ordenar por longitud de prefijo (más largo primero) para matchear correctamente
+        const sortedPrefixes = Object.entries(prefixes).sort((a, b) => b[0].length - a[0].length);
+        for (const [prefix, data] of sortedPrefixes) {
             if (phone.startsWith(prefix)) return { ...data, valid: true };
         }
-        return { country: 'Unknown', code: 'N/A', region: 'Unknown', carrier: 'Unknown', type: 'Unknown', valid: false };
+        return { country: 'Unknown', code: 'N/A', countryCode2: null, region: 'Unknown', carrier: 'Unknown', type: 'Unknown', valid: false };
     }
 
     // WHOIS
