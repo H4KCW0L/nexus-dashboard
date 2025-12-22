@@ -1264,21 +1264,21 @@ class NexusDashboard {
         output.textContent = `[*] Looking up ${ip}...\n`;
         
         try {
-            // Usar API que soporta HTTPS
-            const response = await fetch(`https://ipwho.is/${ip}`);
+            // Usar ip-api con JSONP workaround via proxy o directamente
+            const response = await fetch(`https://ipapi.co/${ip}/json/`);
             const data = await response.json();
             
-            if (data.success !== false) {
+            if (!data.error) {
                 output.innerHTML = `
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 <span style="color: #ff4444;">           IP INFORMATION</span>
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 
 IP Address:    ${data.ip}
-Type:          ${data.type || 'N/A'}
+Version:       ${data.version || 'IPv4'}
 
 <span style="color: #ffaa00;">── LOCATION ──</span>
-Country:       ${data.country} (${data.country_code})
+Country:       ${data.country_name} (${data.country_code})
 Region:        ${data.region}
 City:          ${data.city}
 Postal:        ${data.postal || 'N/A'}
@@ -1286,30 +1286,51 @@ Latitude:      ${data.latitude}
 Longitude:     ${data.longitude}
 
 <span style="color: #ffaa00;">── TIMEZONE ──</span>
-Timezone:      ${data.timezone?.id || 'N/A'}
-UTC Offset:    ${data.timezone?.utc || 'N/A'}
-Current Time:  ${data.timezone?.current_time || 'N/A'}
+Timezone:      ${data.timezone || 'N/A'}
+UTC Offset:    ${data.utc_offset || 'N/A'}
 
 <span style="color: #ffaa00;">── NETWORK ──</span>
-ISP:           ${data.connection?.isp || 'N/A'}
-Organization:  ${data.connection?.org || 'N/A'}
-ASN:           ${data.connection?.asn || 'N/A'}
-Domain:        ${data.connection?.domain || 'N/A'}
+ISP:           ${data.org || 'N/A'}
+ASN:           ${data.asn || 'N/A'}
 
-<span style="color: #ffaa00;">── FLAGS ──</span>
-Continent:     ${data.continent}
-Is EU:         ${data.is_eu ? 'Yes' : 'No'}
-Calling Code:  ${data.calling_code || 'N/A'}
-Currency:      ${data.currency?.code || 'N/A'} (${data.currency?.symbol || ''})
+<span style="color: #ffaa00;">── EXTRA ──</span>
+Continent:     ${data.continent_code || 'N/A'}
+Country Code:  ${data.country_code}
+Calling Code:  ${data.country_calling_code || 'N/A'}
+Currency:      ${data.currency || 'N/A'} (${data.currency_name || ''})
+Languages:     ${data.languages || 'N/A'}
 
 <span style="color: #00ff00;">═══════════════════════════════════════</span>
 <span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
 <span style="color: #00ff00;">═══════════════════════════════════════</span>`;
             } else {
-                output.textContent = `[ERROR] ${data.message || 'Failed to lookup IP'}`;
+                output.textContent = `[ERROR] ${data.reason || 'Failed to lookup IP'}`;
             }
         } catch (error) {
-            output.textContent = `[ERROR] Failed to connect to API: ${error.message}`;
+            // Fallback a otra API
+            try {
+                const response2 = await fetch(`https://api.iplocation.net/?ip=${ip}`);
+                const data2 = await response2.json();
+                
+                if (data2.response_code === '200') {
+                    output.innerHTML = `
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444;">           IP INFORMATION</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+
+IP Address:    ${data2.ip}
+Country:       ${data2.country_name} (${data2.country_code2})
+ISP:           ${data2.isp}
+
+<span style="color: #00ff00;">═══════════════════════════════════════</span>
+<span style="color: #ff4444; font-weight: bold;">         TRACKED BY NEXUS</span>
+<span style="color: #00ff00;">═══════════════════════════════════════</span>`;
+                } else {
+                    output.textContent = `[ERROR] Could not lookup IP`;
+                }
+            } catch (e) {
+                output.textContent = `[ERROR] All APIs failed. Try again later.`;
+            }
         }
     }
 
