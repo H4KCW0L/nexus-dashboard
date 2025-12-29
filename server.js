@@ -1427,6 +1427,51 @@ io.on('connection', (socket) => {
         if (!checkSocketRateLimit()) return;
         
         const username = onlineUsers.get(socket.id) || 'Anonymous';
+        const user = registeredUsers[username];
+        const activeTag = user?.activeTag || null;
+        const nameColor = user?.nameColor || null;
+        
+        // Comando /set coins (solo owner)
+        if (typeof msg.content === 'string' && msg.content.startsWith('/set coins @')) {
+            if (!user || user.role !== 'owner') {
+                socket.emit('message', {
+                    type: 'system',
+                    text: 'Solo el owner puede usar este comando',
+                    time: new Date().toLocaleTimeString()
+                });
+                return;
+            }
+            
+            const match = msg.content.match(/^\/set coins @(\S+)\s+(\d+)$/);
+            if (match) {
+                const targetUsername = match[1];
+                const amount = parseInt(match[2]);
+                const targetUser = registeredUsers[targetUsername];
+                
+                if (targetUser) {
+                    targetUser.coins = amount;
+                    saveUsers(registeredUsers);
+                    socket.emit('message', {
+                        type: 'system',
+                        text: `✅ Se establecieron ${amount} coins a ${targetUsername}`,
+                        time: new Date().toLocaleTimeString()
+                    });
+                } else {
+                    socket.emit('message', {
+                        type: 'system',
+                        text: `❌ Usuario "${targetUsername}" no encontrado`,
+                        time: new Date().toLocaleTimeString()
+                    });
+                }
+            } else {
+                socket.emit('message', {
+                    type: 'system',
+                    text: 'Uso: /set coins @usuario cantidad',
+                    time: new Date().toLocaleTimeString()
+                });
+            }
+            return;
+        }
         
         // Validar mensaje
         if (msg.type === 'image') {
@@ -1434,6 +1479,8 @@ io.on('connection', (socket) => {
             io.emit('message', {
                 type: 'image',
                 username,
+                activeTag,
+                nameColor,
                 content: msg.content,
                 time: new Date().toLocaleTimeString()
             });
@@ -1442,6 +1489,8 @@ io.on('connection', (socket) => {
             io.emit('message', {
                 type: 'sticker',
                 username,
+                activeTag,
+                nameColor,
                 content: msg.content,
                 time: new Date().toLocaleTimeString()
             });
@@ -1451,6 +1500,8 @@ io.on('connection', (socket) => {
             io.emit('message', {
                 type: 'text',
                 username,
+                activeTag,
+                nameColor,
                 text,
                 time: new Date().toLocaleTimeString()
             });

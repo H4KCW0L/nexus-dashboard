@@ -632,6 +632,28 @@ body {
     font-size: 10px;
 }
 
+.chat-tag {
+    background: linear-gradient(135deg, #ff4444, #ff8800);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    margin-right: 5px;
+    animation: rgbBg 7s linear infinite;
+}
+
+.member-tag {
+    background: linear-gradient(135deg, #ff4444, #ff8800);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 5px;
+    animation: rgbBg 7s linear infinite;
+}
+
 .chat-username {
     font-weight: bold;
     animation: rgbText 7s linear infinite;

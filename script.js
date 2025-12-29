@@ -864,6 +864,12 @@ class NexusDashboard {
     // MEMBERS
     async loadMembers() {
         try {
+            // Cargar shop items para mostrar tags
+            if (!this.shopItems) {
+                const shopRes = await fetch('/api/shop');
+                this.shopItems = await shopRes.json();
+            }
+            
             const response = await fetch('/api/members');
             const members = await response.json();
             const myRole = currentUser?.role;
@@ -873,11 +879,14 @@ class NexusDashboard {
             container.innerHTML = members.map(m => {
                 // Mostrar menu si: puedo gestionar Y no soy yo mismo
                 const showMenu = canManage && m.username !== currentUser?.username;
+                const tagDisplay = m.activeTag && this.shopItems?.[m.activeTag] ? 
+                    `<span class="member-tag">${this.shopItems[m.activeTag].name}</span>` : '';
+                const nameStyle = m.nameColor ? `style="color: ${m.nameColor}"` : '';
                 return `
                 <div class="member-card" data-username="${m.username}" data-role="${m.role}">
                     <div class="member-avatar">${m.avatar ? `<img src="${m.avatar}">` : m.username.charAt(0).toUpperCase()}</div>
                     <div class="member-info">
-                        <div class="member-name">${m.username} ${m.online ? '<span class="online-badge">ONLINE</span>' : ''}</div>
+                        <div class="member-name" ${nameStyle}>${m.username} ${tagDisplay} ${m.online ? '<span class="online-badge">ONLINE</span>' : ''}</div>
                         <div class="member-role ${m.role}">${m.role.toUpperCase()}</div>
                         <div class="member-bio">${m.bio || 'No bio'}</div>
                     </div>
@@ -1095,11 +1104,19 @@ class NexusDashboard {
     }
 
     // CHAT
-    initChat() {
+    async initChat() {
         if (typeof io === 'undefined') {
             document.getElementById('chat-messages').innerHTML = 
                 '<div class="chat-error">Chat requires the server to be running.</div>';
             return;
+        }
+
+        // Cargar shop items para mostrar tags
+        if (!this.shopItems) {
+            try {
+                const res = await fetch('/api/shop');
+                this.shopItems = await res.json();
+            } catch(e) {}
         }
 
         // Disconnect existing socket if any
@@ -1464,6 +1481,11 @@ class NexusDashboard {
         const messagesDiv = document.getElementById('chat-messages');
         const msgElement = document.createElement('div');
         
+        // Obtener el tag del SHOP_ITEMS si existe
+        const tagDisplay = msg.activeTag && this.shopItems?.[msg.activeTag] ? 
+            `<span class="chat-tag">${this.shopItems[msg.activeTag].name}</span>` : '';
+        const nameStyle = msg.nameColor ? `style="color: ${msg.nameColor}"` : '';
+        
         if (msg.type === 'system') {
             msgElement.className = 'chat-message system';
             msgElement.innerHTML = `<span class="chat-time">[${msg.time}]</span> ${msg.text}`;
@@ -1471,7 +1493,8 @@ class NexusDashboard {
             msgElement.className = 'chat-message user';
             msgElement.innerHTML = `
                 <span class="chat-time">[${msg.time}]</span> 
-                <span class="chat-username">${msg.username}:</span>
+                ${tagDisplay}
+                <span class="chat-username" ${nameStyle}>${msg.username}:</span>
                 <div class="chat-image-container">
                     <img src="${msg.content}" class="chat-image" onclick="window.open('${msg.content}', '_blank')">
                 </div>`;
@@ -1479,14 +1502,15 @@ class NexusDashboard {
             msgElement.className = 'chat-message user';
             msgElement.innerHTML = `
                 <span class="chat-time">[${msg.time}]</span> 
-                <span class="chat-username">${msg.username}:</span>
+                ${tagDisplay}
+                <span class="chat-username" ${nameStyle}>${msg.username}:</span>
                 <div class="chat-sticker-container">
                     <img src="${msg.content}" class="chat-sticker">
                 </div>`;
         } else {
             msgElement.className = 'chat-message user';
             const text = msg.text || msg.content || '';
-            msgElement.innerHTML = `<span class="chat-time">[${msg.time}]</span> <span class="chat-username">${msg.username}:</span> ${text}`;
+            msgElement.innerHTML = `<span class="chat-time">[${msg.time}]</span> ${tagDisplay} <span class="chat-username" ${nameStyle}>${msg.username}:</span> ${text}`;
         }
         
         messagesDiv.appendChild(msgElement);
