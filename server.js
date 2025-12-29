@@ -189,6 +189,21 @@ const DB_FILE = 'users.json';
 const SOUNDS_FILE = 'voicesounds.json';
 const NOTES_FILE = 'notes.json';
 const STICKERS_FILE = 'stickers.json';
+const SHOP_FILE = 'shop.json';
+
+// Shop items configuration
+const SHOP_ITEMS = {
+    'tag_vip': { name: 'VIP Tag', price: 500, type: 'tag', description: 'Exclusive VIP badge next to your name' },
+    'tag_og': { name: 'OG Tag', price: 1000, type: 'tag', description: 'Original Gangster badge' },
+    'tag_legend': { name: 'Legend Tag', price: 2500, type: 'tag', description: 'Legendary status badge' },
+    'tag_hacker': { name: 'Hacker Tag', price: 750, type: 'tag', description: 'Elite hacker badge' },
+    'perm_pin': { name: 'Pin Messages', price: 1500, type: 'permission', description: 'Ability to pin messages in chat' },
+    'perm_customcolor': { name: 'Custom Name Color', price: 800, type: 'permission', description: 'Choose your username color in chat' },
+    'theme_red': { name: 'Red Theme', price: 300, type: 'theme', description: 'Red color scheme' },
+    'theme_blue': { name: 'Blue Theme', price: 300, type: 'theme', description: 'Blue color scheme' },
+    'theme_green': { name: 'Green Theme', price: 300, type: 'theme', description: 'Green/Matrix color scheme' },
+    'theme_purple': { name: 'Purple Theme', price: 300, type: 'theme', description: 'Purple color scheme' },
+};
 
 // Load or create users database
 function loadUsers() {
@@ -206,7 +221,13 @@ function loadUsers() {
             role: 'owner',
             bio: 'System Administrator',
             avatar: '',
-            joinDate: new Date().toISOString()
+            joinDate: new Date().toISOString(),
+            coins: 10000,
+            inventory: [],
+            activeTag: null,
+            nameColor: null,
+            theme: null,
+            lastCoinClaim: null
         }
     };
     saveUsers(defaultUsers);
@@ -215,6 +236,24 @@ function loadUsers() {
 
 function saveUsers(users) {
     fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
+}
+
+// Migrate old users to have coins
+function migrateUsers() {
+    let changed = false;
+    for (const username in registeredUsers) {
+        const user = registeredUsers[username];
+        if (user.coins === undefined) {
+            user.coins = 100; // Starting bonus
+            user.inventory = [];
+            user.activeTag = null;
+            user.nameColor = null;
+            user.theme = null;
+            user.lastCoinClaim = null;
+            changed = true;
+        }
+    }
+    if (changed) saveUsers(registeredUsers);
 }
 
 function loadVoiceSounds() {
@@ -260,6 +299,7 @@ function saveStickers(stickers) {
 
 let voiceSounds = loadVoiceSounds();
 let registeredUsers = loadUsers();
+migrateUsers(); // Migrate old users
 let notes = loadNotes();
 let stickers = loadStickers();
 const onlineUsers = new Map();
@@ -277,6 +317,16 @@ app.post('/api/login', authLimiter, (req, res) => {
     const user = registeredUsers[username];
     
     if (user && user.password === password) {
+        // Migrate user if needed
+        if (user.coins === undefined) {
+            user.coins = 100;
+            user.inventory = [];
+            user.activeTag = null;
+            user.nameColor = null;
+            user.theme = null;
+            user.lastCoinClaim = null;
+            saveUsers(registeredUsers);
+        }
         res.json({ success: true, user: { ...user, password: undefined } });
     } else {
         res.json({ success: false, message: 'Invalid credentials' });
@@ -305,7 +355,13 @@ app.post('/api/register', authLimiter, (req, res) => {
         role: 'member',
         bio: '',
         avatar: '',
-        joinDate: new Date().toISOString()
+        joinDate: new Date().toISOString(),
+        coins: 100, // Starting bonus
+        inventory: [],
+        activeTag: null,
+        nameColor: null,
+        theme: null,
+        lastCoinClaim: null
     };
     saveUsers(registeredUsers);
     res.json({ success: true });
@@ -318,6 +374,8 @@ app.get('/api/members', apiLimiter, (req, res) => {
         bio: u.bio,
         avatar: u.avatar,
         joinDate: u.joinDate,
+        activeTag: u.activeTag,
+        nameColor: u.nameColor,
         online: Array.from(onlineUsers.values()).includes(u.username)
     }));
     res.json(members);
@@ -910,6 +968,188 @@ app.post('/api/voice/sounds/system', apiLimiter, (req, res) => {
     saveVoiceSounds(voiceSounds);
     
     res.json({ success: true });
+});
+
+// ============ COINS & SHOP SYSTEM ============
+
+// Get user coins and inventory
+app.get('/api/coins/:username', apiLimiter, (req, res) => {
+    const { username } = req.params;
+    const user = registeredUsers[username];
+    
+    if (!user) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    res.json({
+        success: true,
+        coins: user.coins || 0,
+        inventory: user.inventory || [],
+        activeTag: user.activeTag,
+        nameColor: user.nameColor,
+        theme: user.theme
+    });
+});
+
+// Claim coins (every 10 minutes)
+app.post('/api/coins/claim', apiLimiter, (req, res) => {
+    const { username } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    const now = Date.now();
+    const lastClaim = user.lastCoinClaim || 0;
+    const timeSinceClaim = now - lastClaim;
+    const TEN_MINUTES = 10 * 60 * 1000;
+    
+    if (timeSinceClaim < TEN_MINUTES) {
+        const remaining = Math.ceil((TEN_MINUTES - timeSinceClaim) / 1000);
+        return res.json({ 
+            success: false, 
+            message: `Wait ${Math.floor(remaining / 60)}m ${remaining % 60}s`,
+            remaining 
+        });
+    }
+    
+    const coinsEarned = 10 + Math.floor(Math.random() * 5); // 10-14 coins
+    user.coins = (user.coins || 0) + coinsEarned;
+    user.lastCoinClaim = now;
+    saveUsers(registeredUsers);
+    
+    res.json({ 
+        success: true, 
+        coinsEarned, 
+        totalCoins: user.coins 
+    });
+});
+
+// Get shop items
+app.get('/api/shop', apiLimiter, (req, res) => {
+    res.json(SHOP_ITEMS);
+});
+
+// Buy item from shop
+app.post('/api/shop/buy', apiLimiter, (req, res) => {
+    const { username, itemId } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    const item = SHOP_ITEMS[itemId];
+    if (!item) {
+        return res.json({ success: false, message: 'Item not found' });
+    }
+    
+    if (!user.inventory) user.inventory = [];
+    
+    if (user.inventory.includes(itemId)) {
+        return res.json({ success: false, message: 'You already own this item' });
+    }
+    
+    if ((user.coins || 0) < item.price) {
+        return res.json({ success: false, message: 'Not enough coins' });
+    }
+    
+    user.coins -= item.price;
+    user.inventory.push(itemId);
+    saveUsers(registeredUsers);
+    
+    res.json({ 
+        success: true, 
+        message: `Purchased ${item.name}!`,
+        coins: user.coins,
+        inventory: user.inventory
+    });
+});
+
+// Equip/activate item
+app.post('/api/shop/equip', apiLimiter, (req, res) => {
+    const { username, itemId } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    if (!user.inventory?.includes(itemId) && itemId !== null) {
+        return res.json({ success: false, message: 'You do not own this item' });
+    }
+    
+    const item = SHOP_ITEMS[itemId];
+    
+    if (itemId === null || !item) {
+        // Unequip
+        user.activeTag = null;
+        user.nameColor = null;
+        user.theme = null;
+    } else if (item.type === 'tag') {
+        user.activeTag = itemId;
+    } else if (item.type === 'theme') {
+        user.theme = itemId;
+    }
+    
+    saveUsers(registeredUsers);
+    
+    res.json({ 
+        success: true,
+        activeTag: user.activeTag,
+        nameColor: user.nameColor,
+        theme: user.theme
+    });
+});
+
+// Set custom name color (if user has permission)
+app.post('/api/shop/setcolor', apiLimiter, (req, res) => {
+    const { username, color } = req.body;
+    const user = registeredUsers[username];
+    
+    if (!user) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    if (!user.inventory?.includes('perm_customcolor')) {
+        return res.json({ success: false, message: 'You need to buy Custom Name Color first' });
+    }
+    
+    // Validate color format
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+        return res.json({ success: false, message: 'Invalid color format' });
+    }
+    
+    user.nameColor = color;
+    saveUsers(registeredUsers);
+    
+    res.json({ success: true, nameColor: color });
+});
+
+// Admin: Give coins to user
+app.post('/api/coins/give', apiLimiter, (req, res) => {
+    const { adminUser, targetUser, amount } = req.body;
+    const admin = registeredUsers[adminUser];
+    const target = registeredUsers[targetUser];
+    
+    if (!admin || admin.role !== 'owner') {
+        return res.json({ success: false, message: 'Only owner can give coins' });
+    }
+    
+    if (!target) {
+        return res.json({ success: false, message: 'Target user not found' });
+    }
+    
+    const coins = parseInt(amount);
+    if (isNaN(coins) || coins <= 0 || coins > 100000) {
+        return res.json({ success: false, message: 'Invalid amount (1-100000)' });
+    }
+    
+    target.coins = (target.coins || 0) + coins;
+    saveUsers(registeredUsers);
+    
+    res.json({ success: true, newBalance: target.coins });
 });
 
 // ============ NOTES SYSTEM ============

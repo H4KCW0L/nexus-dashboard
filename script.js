@@ -149,6 +149,66 @@ class NexusDashboard {
     init() {
         this.setupNavigation();
         this.loadToolContent('ip-lookup');
+        this.initCoinsSystem();
+    }
+
+    async initCoinsSystem() {
+        // Load user coins
+        if (currentUser) {
+            try {
+                const response = await fetch(`/api/coins/${currentUser.username}`);
+                const data = await response.json();
+                if (data.success) {
+                    currentUser.coins = data.coins;
+                    currentUser.inventory = data.inventory;
+                    currentUser.activeTag = data.activeTag;
+                    document.getElementById('coins-amount').textContent = data.coins;
+                }
+            } catch (e) {}
+        }
+        
+        // Claim button
+        const claimBtn = document.getElementById('coins-claim');
+        if (claimBtn) {
+            claimBtn.onclick = () => this.claimCoins();
+        }
+        
+        // Auto-claim reminder every 10 minutes
+        setInterval(() => {
+            const claimBtn = document.getElementById('coins-claim');
+            if (claimBtn) claimBtn.classList.add('pulse');
+        }, 10 * 60 * 1000);
+    }
+
+    async claimCoins() {
+        try {
+            const response = await fetch('/api/coins/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                currentUser.coins = data.totalCoins;
+                document.getElementById('coins-amount').textContent = data.totalCoins;
+                document.getElementById('coins-claim').classList.remove('pulse');
+                this.showCoinAnimation(data.coinsEarned);
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error claiming coins');
+        }
+    }
+
+    showCoinAnimation(amount) {
+        const display = document.getElementById('coins-display');
+        const popup = document.createElement('div');
+        popup.className = 'coin-popup';
+        popup.textContent = `+${amount}`;
+        display.appendChild(popup);
+        setTimeout(() => popup.remove(), 1500);
     }
 
     setupNavigation() {
@@ -203,6 +263,7 @@ class NexusDashboard {
             'chat': this.getChatHTML(),
             'voice-chat': this.getVoiceChatHTML(),
             'members': this.getMembersHTML(),
+            'shop': this.getShopHTML(),
             'notes': this.getNotesHTML(),
             'profile': this.getProfileHTML()
         };
@@ -411,6 +472,179 @@ class NexusDashboard {
         `;
     }
 
+    getShopHTML() {
+        return `
+            <div class="tool-panel shop-panel">
+                <h2>🪙 Nexus Shop</h2>
+                <div class="shop-balance">
+                    <span>Your Balance:</span>
+                    <span class="shop-coins" id="shop-coins">${currentUser?.coins || 0} coins</span>
+                </div>
+                <div class="shop-tabs">
+                    <button class="shop-tab active" data-tab="tags">Tags</button>
+                    <button class="shop-tab" data-tab="perms">Permissions</button>
+                    <button class="shop-tab" data-tab="themes">Themes</button>
+                    <button class="shop-tab" data-tab="inventory">My Items</button>
+                </div>
+                <div class="shop-items" id="shop-items">
+                    <div class="loading-members">Loading shop...</div>
+                </div>
+            </div>
+        `;
+    }
+
+    async loadShop() {
+        try {
+            const response = await fetch('/api/shop');
+            this.shopItems = await response.json();
+            
+            // Load user data
+            const userResponse = await fetch(`/api/coins/${currentUser.username}`);
+            const userData = await userResponse.json();
+            if (userData.success) {
+                currentUser.coins = userData.coins;
+                currentUser.inventory = userData.inventory;
+                currentUser.activeTag = userData.activeTag;
+                document.getElementById('shop-coins').textContent = `${userData.coins} coins`;
+                document.getElementById('coins-amount').textContent = userData.coins;
+            }
+            
+            this.renderShopItems('tags');
+            
+            // Tab switching
+            document.querySelectorAll('.shop-tab').forEach(tab => {
+                tab.onclick = () => {
+                    document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    this.renderShopItems(tab.dataset.tab);
+                };
+            });
+        } catch (e) {
+            document.getElementById('shop-items').innerHTML = '<div class="chat-error">Could not load shop</div>';
+        }
+    }
+
+    renderShopItems(tab) {
+        const container = document.getElementById('shop-items');
+        
+        if (tab === 'inventory') {
+            this.renderInventory();
+            return;
+        }
+        
+        const typeMap = { tags: 'tag', perms: 'permission', themes: 'theme' };
+        const type = typeMap[tab];
+        
+        const items = Object.entries(this.shopItems).filter(([id, item]) => item.type === type);
+        
+        if (items.length === 0) {
+            container.innerHTML = '<div class="shop-empty">No items in this category</div>';
+            return;
+        }
+        
+        container.innerHTML = items.map(([id, item]) => {
+            const owned = currentUser.inventory?.includes(id);
+            const equipped = currentUser.activeTag === id || currentUser.theme === id;
+            return `
+                <div class="shop-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}">
+                    <div class="shop-item-info">
+                        <div class="shop-item-name">${item.name}</div>
+                        <div class="shop-item-desc">${item.description}</div>
+                        <div class="shop-item-price">${item.price} 🪙</div>
+                    </div>
+                    <div class="shop-item-actions">
+                        ${owned ? 
+                            (item.type === 'tag' || item.type === 'theme' ? 
+                                `<button class="btn-secondary btn-small" onclick="dashboard.equipItem('${id}')">${equipped ? 'Unequip' : 'Equip'}</button>` 
+                                : '<span class="owned-badge">OWNED</span>') 
+                            : `<button class="btn-primary btn-small" onclick="dashboard.buyItem('${id}')">Buy</button>`
+                        }
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderInventory() {
+        const container = document.getElementById('shop-items');
+        const inventory = currentUser.inventory || [];
+        
+        if (inventory.length === 0) {
+            container.innerHTML = '<div class="shop-empty">You don\'t own any items yet. Buy something!</div>';
+            return;
+        }
+        
+        container.innerHTML = inventory.map(id => {
+            const item = this.shopItems[id];
+            if (!item) return '';
+            const equipped = currentUser.activeTag === id || currentUser.theme === id;
+            return `
+                <div class="shop-item owned ${equipped ? 'equipped' : ''}">
+                    <div class="shop-item-info">
+                        <div class="shop-item-name">${item.name}</div>
+                        <div class="shop-item-desc">${item.description}</div>
+                    </div>
+                    <div class="shop-item-actions">
+                        ${item.type === 'tag' || item.type === 'theme' ? 
+                            `<button class="btn-secondary btn-small" onclick="dashboard.equipItem('${id}')">${equipped ? 'Unequip' : 'Equip'}</button>` 
+                            : '<span class="owned-badge">OWNED</span>'
+                        }
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async buyItem(itemId) {
+        try {
+            const response = await fetch('/api/shop/buy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser.username, itemId })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                currentUser.coins = data.coins;
+                currentUser.inventory = data.inventory;
+                document.getElementById('shop-coins').textContent = `${data.coins} coins`;
+                document.getElementById('coins-amount').textContent = data.coins;
+                this.renderShopItems(document.querySelector('.shop-tab.active').dataset.tab);
+                alert(data.message);
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error buying item');
+        }
+    }
+
+    async equipItem(itemId) {
+        const isEquipped = currentUser.activeTag === itemId || currentUser.theme === itemId;
+        
+        try {
+            const response = await fetch('/api/shop/equip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    username: currentUser.username, 
+                    itemId: isEquipped ? null : itemId 
+                })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                currentUser.activeTag = data.activeTag;
+                currentUser.theme = data.theme;
+                this.renderShopItems(document.querySelector('.shop-tab.active').dataset.tab);
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert('Error equipping item');
+        }
+    }
+
     getNotesHTML() {
         const canWrite = currentUser?.role === 'owner' || currentUser?.role === 'admin';
         return `
@@ -606,6 +840,9 @@ class NexusDashboard {
                 break;
             case 'members':
                 this.loadMembers();
+                break;
+            case 'shop':
+                this.loadShop();
                 break;
             case 'notes':
                 this.loadNotes();

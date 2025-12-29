@@ -2708,3 +2708,266 @@ body {
         grid-template-columns: repeat(4, 1fr);
     }
 }
+
+
+/* ============ COINS & SHOP STYLES ============ */
+
+/* Coins Display in Header */
+.coins-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #0a0a0a;
+    padding: 8px 15px;
+    border-radius: 20px;
+    border: 1px solid;
+    animation: rgbGlow 7s linear infinite;
+}
+
+.coins-icon {
+    font-size: 18px;
+}
+
+.coins-amount {
+    font-weight: bold;
+    font-size: 14px;
+    animation: rgbText 7s linear infinite;
+}
+
+.coins-claim {
+    background: #333;
+    border: none;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+
+.coins-claim:hover {
+    animation: rgbBg 7s linear infinite;
+}
+
+.coins-claim.pulse {
+    animation: coinPulse 1s infinite;
+}
+
+@keyframes coinPulse {
+    0%, 100% { transform: scale(1); background: #333; }
+    50% { transform: scale(1.2); background: #ffaa00; }
+}
+
+.coin-popup {
+    position: absolute;
+    top: -20px;
+    right: 0;
+    color: #00ff00;
+    font-weight: bold;
+    font-size: 16px;
+    animation: coinFloat 1.5s ease-out forwards;
+}
+
+@keyframes coinFloat {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-30px); }
+}
+
+/* Shop Panel */
+.shop-panel {
+    height: 100%;
+}
+
+.shop-balance {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: #0a0a0a;
+    border: 1px solid;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    animation: rgbGlow 7s linear infinite;
+}
+
+.shop-balance span:first-child {
+    color: #888;
+}
+
+.shop-coins {
+    font-size: 20px;
+    font-weight: bold;
+    animation: rgbText 7s linear infinite;
+}
+
+.shop-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.shop-tab {
+    flex: 1;
+    min-width: 80px;
+    padding: 10px 15px;
+    background: #333;
+    border: none;
+    border-radius: 5px;
+    color: #888;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.shop-tab:hover {
+    background: #444;
+    color: #fff;
+}
+
+.shop-tab.active {
+    color: white;
+    animation: rgbBg 7s linear infinite;
+}
+
+.shop-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.shop-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.shop-item:hover {
+    border-color: #ff4444;
+}
+
+.shop-item.owned {
+    border-color: #00ff00;
+    background: #0a1a0a;
+}
+
+.shop-item.equipped {
+    border-color: #ffaa00;
+    background: #1a1a0a;
+}
+
+.shop-item-info {
+    flex: 1;
+}
+
+.shop-item-name {
+    font-size: 14px;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 5px;
+}
+
+.shop-item-desc {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 5px;
+}
+
+.shop-item-price {
+    font-size: 13px;
+    font-weight: bold;
+    animation: rgbText 7s linear infinite;
+}
+
+.shop-item-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.owned-badge {
+    background: #00ff00;
+    color: #000;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.shop-empty {
+    text-align: center;
+    color: #666;
+    padding: 40px;
+    font-size: 14px;
+}
+
+/* User Tags in Chat */
+.user-tag {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 5px;
+    font-weight: bold;
+}
+
+.user-tag.vip {
+    background: linear-gradient(90deg, #ff4444, #ffaa00);
+    color: white;
+}
+
+.user-tag.og {
+    background: linear-gradient(90deg, #00ff00, #00ffaa);
+    color: #000;
+}
+
+.user-tag.legend {
+    background: linear-gradient(90deg, #ff00ff, #00ffff);
+    color: white;
+}
+
+.user-tag.hacker {
+    background: #00ff00;
+    color: #000;
+}
+
+/* Responsive Shop */
+@media screen and (max-width: 768px) {
+    .coins-display {
+        padding: 6px 10px;
+    }
+    
+    .coins-amount {
+        font-size: 12px;
+    }
+    
+    .shop-tabs {
+        gap: 5px;
+    }
+    
+    .shop-tab {
+        padding: 8px 10px;
+        font-size: 11px;
+        min-width: 60px;
+    }
+    
+    .shop-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .shop-item-actions {
+        width: 100%;
+    }
+    
+    .shop-item-actions button {
+        flex: 1;
+    }
+}
