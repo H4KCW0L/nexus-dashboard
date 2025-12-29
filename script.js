@@ -497,13 +497,14 @@ class NexusDashboard {
         try {
             const response = await fetch('/api/shop');
             this.shopItems = await response.json();
+            console.log('Shop items loaded:', this.shopItems);
             
             // Load user data
             const userResponse = await fetch(`/api/coins/${currentUser.username}`);
             const userData = await userResponse.json();
             if (userData.success) {
                 currentUser.coins = userData.coins;
-                currentUser.inventory = userData.inventory;
+                currentUser.inventory = userData.inventory || [];
                 currentUser.activeTag = userData.activeTag;
                 document.getElementById('shop-coins').textContent = `${userData.coins} coins`;
                 document.getElementById('coins-amount').textContent = userData.coins;
@@ -520,12 +521,18 @@ class NexusDashboard {
                 };
             });
         } catch (e) {
-            document.getElementById('shop-items').innerHTML = '<div class="chat-error">Could not load shop</div>';
+            console.error('Shop load error:', e);
+            document.getElementById('shop-items').innerHTML = '<div class="chat-error">Error cargando la tienda</div>';
         }
     }
 
     renderShopItems(tab) {
         const container = document.getElementById('shop-items');
+        
+        if (!this.shopItems) {
+            container.innerHTML = '<div class="shop-empty">Error: No se pudieron cargar los items</div>';
+            return;
+        }
         
         if (tab === 'inventory') {
             this.renderInventory();
@@ -535,7 +542,7 @@ class NexusDashboard {
         const typeMap = { tags: 'tag', perms: 'permission', premium: 'premium' };
         const type = typeMap[tab];
         
-        const items = Object.entries(this.shopItems).filter(([id, item]) => item.type === type);
+        const items = Object.entries(this.shopItems).filter(([id, item]) => item && item.type === type);
         
         if (items.length === 0) {
             container.innerHTML = '<div class="shop-empty">No hay items en esta categoría</div>';
@@ -543,14 +550,15 @@ class NexusDashboard {
         }
         
         container.innerHTML = items.map(([id, item]) => {
+            if (!item || !item.name) return '';
             const owned = currentUser.inventory?.includes(id);
             const equipped = currentUser.activeTag === id || currentUser.theme === id;
             return `
                 <div class="shop-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}">
                     <div class="shop-item-info">
-                        <div class="shop-item-name">${item.name}</div>
-                        <div class="shop-item-desc">${item.description}</div>
-                        <div class="shop-item-price">${item.price} 🪙</div>
+                        <div class="shop-item-name">${item.name || 'Sin nombre'}</div>
+                        <div class="shop-item-desc">${item.description || ''}</div>
+                        <div class="shop-item-price">${item.price || 0} 🪙</div>
                     </div>
                     <div class="shop-item-actions">
                         ${owned ? 
