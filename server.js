@@ -193,16 +193,21 @@ const SHOP_FILE = 'shop.json';
 
 // Shop items configuration
 const SHOP_ITEMS = {
-    'tag_vip': { name: 'VIP Tag', price: 500, type: 'tag', description: 'Exclusive VIP badge next to your name' },
-    'tag_og': { name: 'OG Tag', price: 1000, type: 'tag', description: 'Original Gangster badge' },
-    'tag_legend': { name: 'Legend Tag', price: 2500, type: 'tag', description: 'Legendary status badge' },
-    'tag_hacker': { name: 'Hacker Tag', price: 750, type: 'tag', description: 'Elite hacker badge' },
-    'perm_pin': { name: 'Pin Messages', price: 1500, type: 'permission', description: 'Ability to pin messages in chat' },
-    'perm_customcolor': { name: 'Custom Name Color', price: 800, type: 'permission', description: 'Choose your username color in chat' },
-    'theme_red': { name: 'Red Theme', price: 300, type: 'theme', description: 'Red color scheme' },
-    'theme_blue': { name: 'Blue Theme', price: 300, type: 'theme', description: 'Blue color scheme' },
-    'theme_green': { name: 'Green Theme', price: 300, type: 'theme', description: 'Green/Matrix color scheme' },
-    'theme_purple': { name: 'Purple Theme', price: 300, type: 'theme', description: 'Purple color scheme' },
+    // Tags - Etiquetas Exclusivas
+    'tag_vip': { name: '⭐ VIP', price: 100, type: 'tag', description: 'Etiqueta VIP exclusiva' },
+    'tag_og': { name: '👑 OG', price: 100, type: 'tag', description: 'Etiqueta Original Gangster' },
+    'tag_legend': { name: '🔥 Legend', price: 100, type: 'tag', description: 'Etiqueta Legendaria' },
+    'tag_hacker': { name: '💀 Hacker', price: 100, type: 'tag', description: 'Etiqueta Elite Hacker' },
+    'tag_pro': { name: '💎 Pro', price: 100, type: 'tag', description: 'Etiqueta Pro Player' },
+    'tag_god': { name: '⚡ God', price: 100, type: 'tag', description: 'Etiqueta God Mode' },
+    
+    // Permissions - Permisos
+    'perm_pin': { name: 'Poder Fijar Mensajes', price: 100, type: 'permission', description: 'Permite fijar mensajes en el chat' },
+    'perm_customcolor': { name: 'Color de Nombre', price: 100, type: 'permission', description: 'Elige el color de tu nombre en el chat' },
+    
+    // Premium Items
+    'softperfect': { name: 'SoftPerfect Personalizado', price: 1000, type: 'premium', description: 'Acceso a SoftPerfect personalizado exclusivo' },
+    'confis': { name: 'Confis Personalizadas', price: 500, type: 'premium', description: 'Configuraciones personalizadas exclusivas' },
 };
 
 // Load or create users database

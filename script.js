@@ -477,17 +477,17 @@ class NexusDashboard {
             <div class="tool-panel shop-panel">
                 <h2>🪙 Nexus Shop</h2>
                 <div class="shop-balance">
-                    <span>Your Balance:</span>
+                    <span>Tu Balance:</span>
                     <span class="shop-coins" id="shop-coins">${currentUser?.coins || 0} coins</span>
                 </div>
                 <div class="shop-tabs">
-                    <button class="shop-tab active" data-tab="tags">Tags</button>
-                    <button class="shop-tab" data-tab="perms">Permissions</button>
-                    <button class="shop-tab" data-tab="themes">Themes</button>
-                    <button class="shop-tab" data-tab="inventory">My Items</button>
+                    <button class="shop-tab active" data-tab="tags">Etiquetas</button>
+                    <button class="shop-tab" data-tab="perms">Permisos</button>
+                    <button class="shop-tab" data-tab="premium">Premium</button>
+                    <button class="shop-tab" data-tab="inventory">Mis Items</button>
                 </div>
                 <div class="shop-items" id="shop-items">
-                    <div class="loading-members">Loading shop...</div>
+                    <div class="loading-members">Cargando tienda...</div>
                 </div>
             </div>
         `;
@@ -532,13 +532,13 @@ class NexusDashboard {
             return;
         }
         
-        const typeMap = { tags: 'tag', perms: 'permission', themes: 'theme' };
+        const typeMap = { tags: 'tag', perms: 'permission', premium: 'premium' };
         const type = typeMap[tab];
         
         const items = Object.entries(this.shopItems).filter(([id, item]) => item.type === type);
         
         if (items.length === 0) {
-            container.innerHTML = '<div class="shop-empty">No items in this category</div>';
+            container.innerHTML = '<div class="shop-empty">No hay items en esta categoría</div>';
             return;
         }
         
@@ -555,9 +555,9 @@ class NexusDashboard {
                     <div class="shop-item-actions">
                         ${owned ? 
                             (item.type === 'tag' || item.type === 'theme' ? 
-                                `<button class="btn-secondary btn-small" onclick="dashboard.equipItem('${id}')">${equipped ? 'Unequip' : 'Equip'}</button>` 
-                                : '<span class="owned-badge">OWNED</span>') 
-                            : `<button class="btn-primary btn-small" onclick="dashboard.buyItem('${id}')">Buy</button>`
+                                `<button class="btn-secondary btn-small" onclick="nexus.equipItem('${id}')">${equipped ? 'Quitar' : 'Equipar'}</button>` 
+                                : '<span class="owned-badge">COMPRADO</span>') 
+                            : `<button class="btn-primary btn-small" onclick="nexus.buyItem('${id}')">Comprar</button>`
                         }
                     </div>
                 </div>
@@ -570,7 +570,7 @@ class NexusDashboard {
         const inventory = currentUser.inventory || [];
         
         if (inventory.length === 0) {
-            container.innerHTML = '<div class="shop-empty">You don\'t own any items yet. Buy something!</div>';
+            container.innerHTML = '<div class="shop-empty">No tienes items aún. ¡Compra algo!</div>';
             return;
         }
         
@@ -586,8 +586,8 @@ class NexusDashboard {
                     </div>
                     <div class="shop-item-actions">
                         ${item.type === 'tag' || item.type === 'theme' ? 
-                            `<button class="btn-secondary btn-small" onclick="dashboard.equipItem('${id}')">${equipped ? 'Unequip' : 'Equip'}</button>` 
-                            : '<span class="owned-badge">OWNED</span>'
+                            `<button class="btn-secondary btn-small" onclick="nexus.equipItem('${id}')">${equipped ? 'Quitar' : 'Equipar'}</button>` 
+                            : '<span class="owned-badge">COMPRADO</span>'
                         }
                     </div>
                 </div>
