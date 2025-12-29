@@ -193,13 +193,12 @@ const SHOP_FILE = 'shop.json';
 
 // Shop items configuration
 const SHOP_ITEMS = {
-    // Tags - Etiquetas Exclusivas
-    'tag_vip': { name: '⭐ VIP', price: 100, type: 'tag', description: 'Etiqueta VIP exclusiva' },
-    'tag_og': { name: '👑 OG', price: 100, type: 'tag', description: 'Etiqueta Original Gangster' },
-    'tag_legend': { name: '🔥 Legend', price: 100, type: 'tag', description: 'Etiqueta Legendaria' },
-    'tag_hacker': { name: '💀 Hacker', price: 100, type: 'tag', description: 'Etiqueta Elite Hacker' },
-    'tag_pro': { name: '💎 Pro', price: 100, type: 'tag', description: 'Etiqueta Pro Player' },
-    'tag_god': { name: '⚡ God', price: 100, type: 'tag', description: 'Etiqueta God Mode' },
+    // Tags - Etiquetas
+    'tag_kuaker': { name: 'Kuaker', price: 100, type: 'tag', description: 'Etiqueta Kuaker' },
+    'tag_nubi': { name: 'Nubi', price: 100, type: 'tag', description: 'Etiqueta Nubi' },
+    'tag_malo': { name: 'Malo', price: 100, type: 'tag', description: 'Etiqueta Malo' },
+    'tag_picauu': { name: 'Picauu', price: 100, type: 'tag', description: 'Etiqueta Picauu' },
+    'tag_anticristo': { name: 'AntiCristo2009', price: 10000000, type: 'tag', description: 'Etiqueta legendaria AntiCristo2009' },
     
     // Permissions - Permisos
     'perm_pin': { name: 'Poder Fijar Mensajes', price: 100, type: 'permission', description: 'Permite fijar mensajes en el chat' },
