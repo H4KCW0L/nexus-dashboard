@@ -916,15 +916,17 @@ class NexusDashboard {
         const targetRole = card.dataset.role;
         const myRole = currentUser?.role;
 
-        // No permitir acciones sobre el owner (excepto si eres owner)
-        const canKickBan = targetRole !== 'owner' || myRole === 'owner';
+        // Admins solo pueden ver info de members
+        const canViewInfo = myRole === 'owner' || (myRole === 'admin' && targetRole === 'member');
+        const canKickBan = (myRole === 'owner') || (myRole === 'admin' && targetRole === 'member');
 
         const menu = document.createElement('div');
         menu.className = 'member-dropdown';
         menu.innerHTML = `
-            <div class="dropdown-item" data-action="credentials">VIEW CREDENTIALS</div>
+            ${canViewInfo ? `<div class="dropdown-item" data-action="credentials">VIEW CREDENTIALS</div>` : ''}
+            ${canViewInfo ? `<div class="dropdown-item" data-action="personalinfo">VIEW PERSONAL INFO</div>` : ''}
             ${canKickBan ? `<div class="dropdown-item" data-action="kick">KICK</div>` : ''}
-            ${canKickBan && targetRole !== 'owner' ? `<div class="dropdown-item danger" data-action="ban">BAN</div>` : ''}
+            ${canKickBan ? `<div class="dropdown-item danger" data-action="ban">BAN</div>` : ''}
             ${myRole === 'owner' && targetRole !== 'owner' ? `
                 <div class="dropdown-item" data-action="promote-admin">SET ADMIN</div>
                 <div class="dropdown-item" data-action="promote-member">SET MEMBER</div>
@@ -957,7 +959,6 @@ class NexusDashboard {
         let endpoint, body;
 
         if (action === 'credentials') {
-            // Show credentials in a popup
             try {
                 const response = await fetch('/api/member/credentials', {
                     method: 'POST',
@@ -973,6 +974,26 @@ class NexusDashboard {
                 }
             } catch (e) {
                 alert('Error getting credentials');
+            }
+            return;
+        }
+
+        if (action === 'personalinfo') {
+            try {
+                const response = await fetch('/api/member/personalinfo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ adminUser: currentUser.username, targetUser })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.showPersonalInfoPopup(data);
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert('Error getting personal info');
             }
             return;
         }
@@ -1040,6 +1061,82 @@ class NexusDashboard {
         
         document.body.appendChild(popup);
         document.getElementById('close-creds').onclick = () => popup.remove();
+        popup.onclick = (e) => { if (e.target === popup) popup.remove(); };
+    }
+
+    async showPersonalInfoPopup(data) {
+        // Remove existing popup
+        const existing = document.querySelector('.credentials-popup');
+        if (existing) existing.remove();
+
+        // Intentar obtener info de la IP
+        let ipInfo = null;
+        if (data.lastIP && data.lastIP !== 'No disponible' && data.lastIP !== 'unknown') {
+            try {
+                const response = await fetch(`/api/iplookup/${data.lastIP}`);
+                ipInfo = await response.json();
+            } catch(e) {}
+        }
+
+        const popup = document.createElement('div');
+        popup.className = 'credentials-popup';
+        popup.innerHTML = `
+            <div class="credentials-box" style="max-width: 450px;">
+                <h3>📍 PERSONAL INFO</h3>
+                <div class="credentials-info">
+                    <div class="cred-field">
+                        <label>Username:</label>
+                        <span>${data.username}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Role:</label>
+                        <span class="role-badge ${data.role}">${data.role.toUpperCase()}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Coins:</label>
+                        <span>${data.coins} 🪙</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Join Date:</label>
+                        <span>${data.joinDate ? new Date(data.joinDate).toLocaleDateString() : 'N/A'}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Last IP:</label>
+                        <span>${data.lastIP}</span>
+                    </div>
+                    ${ipInfo && ipInfo.status === 'success' ? `
+                    <div class="cred-field">
+                        <label>País:</label>
+                        <span>${ipInfo.country || 'N/A'}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Ciudad:</label>
+                        <span>${ipInfo.city || 'N/A'}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Región:</label>
+                        <span>${ipInfo.regionName || 'N/A'}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Coordenadas:</label>
+                        <span>${ipInfo.lat}, ${ipInfo.lon}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>ISP:</label>
+                        <span>${ipInfo.isp || 'N/A'}</span>
+                    </div>
+                    <div class="cred-field">
+                        <label>Timezone:</label>
+                        <span>${ipInfo.timezone || 'N/A'}</span>
+                    </div>
+                    ` : '<div class="cred-field"><span style="color:#666;">Info de ubicación no disponible</span></div>'}
+                </div>
+                <button class="btn-primary" id="close-personal">CLOSE</button>
+            </div>
+        `;
+        
+        document.body.appendChild(popup);
+        document.getElementById('close-personal').onclick = () => popup.remove();
         popup.onclick = (e) => { if (e.target === popup) popup.remove(); };
     }
 

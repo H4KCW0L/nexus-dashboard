@@ -307,6 +307,8 @@ migrateUsers(); // Migrate old users
 let notes = loadNotes();
 let stickers = loadStickers();
 const onlineUsers = new Map();
+const mutedUsers = new Map(); // username -> timestamp cuando termina el mute
+const tempBannedUsers = new Map(); // username -> timestamp cuando termina el ban
 
 // ============ API ROUTES CON PROTECCIÓN ============
 
@@ -495,7 +497,7 @@ app.post('/api/member/role', apiLimiter, (req, res) => {
     res.json({ success: true });
 });
 
-// Get credentials
+// Get credentials (admins solo pueden ver members, owner puede ver todo)
 app.post('/api/member/credentials', apiLimiter, (req, res) => {
     const { adminUser, targetUser } = req.body;
     const admin = registeredUsers[adminUser];
@@ -509,11 +511,66 @@ app.post('/api/member/credentials', apiLimiter, (req, res) => {
         return res.json({ success: false, message: 'User not found' });
     }
     
+    // Admins solo pueden ver info de members
+    if (admin.role === 'admin' && (target.role === 'owner' || target.role === 'admin')) {
+        return res.json({ success: false, message: 'No puedes ver información de usuarios de igual o mayor rango' });
+    }
+    
     res.json({ 
         success: true, 
         username: target.username,
         password: target.password,
         role: target.role
+    });
+});
+
+// Get personal info (ubicación, IP, etc) - Solo owner puede ver todo, admins solo members
+app.post('/api/member/personalinfo', apiLimiter, (req, res) => {
+    const { adminUser, targetUser } = req.body;
+    const admin = registeredUsers[adminUser];
+    const target = registeredUsers[targetUser];
+    
+    if (!admin || (admin.role !== 'owner' && admin.role !== 'admin')) {
+        return res.json({ success: false, message: 'No permission' });
+    }
+    
+    if (!target) {
+        return res.json({ success: false, message: 'User not found' });
+    }
+    
+    // Admins solo pueden ver info de members
+    if (admin.role === 'admin' && (target.role === 'owner' || target.role === 'admin')) {
+        return res.json({ success: false, message: 'No puedes ver información de usuarios de igual o mayor rango' });
+    }
+    
+    // Buscar la IP del usuario en los logs
+    let userIP = null;
+    let ipInfo = null;
+    
+    // Buscar en conexiones activas
+    for (const [socketId, username] of onlineUsers.entries()) {
+        if (username === targetUser) {
+            const socket = io.sockets.sockets.get(socketId);
+            if (socket) {
+                userIP = socket.clientIP || socket.handshake?.address?.replace('::ffff:', '');
+            }
+            break;
+        }
+    }
+    
+    // Si tiene lastIP guardada
+    if (!userIP && target.lastIP) {
+        userIP = target.lastIP;
+    }
+    
+    res.json({ 
+        success: true,
+        username: target.username,
+        role: target.role,
+        joinDate: target.joinDate,
+        lastIP: userIP || 'No disponible',
+        bio: target.bio || '',
+        coins: target.coins || 0
     });
 });
 
@@ -1313,12 +1370,32 @@ io.on('connection', (socket) => {
         if (!checkSocketRateLimit()) return;
         if (!username || username.length > 20) return;
         
+        // Verificar si está baneado temporalmente
+        if (tempBannedUsers.has(username)) {
+            const banEnd = tempBannedUsers.get(username);
+            if (Date.now() < banEnd) {
+                const remaining = Math.ceil((banEnd - Date.now()) / 60000);
+                socket.emit('kicked', `Estás baneado. Tiempo restante: ${remaining} minuto(s)`);
+                return;
+            } else {
+                tempBannedUsers.delete(username);
+            }
+        }
+        
         for (const [id, name] of onlineUsers.entries()) {
             if (name === username && id !== socket.id) {
                 onlineUsers.delete(id);
             }
         }
         onlineUsers.set(socket.id, username);
+        
+        // Guardar última IP del usuario
+        if (registeredUsers[username]) {
+            registeredUsers[username].lastIP = socket.clientIP || 'unknown';
+            registeredUsers[username].lastSeen = new Date().toISOString();
+            saveUsers(registeredUsers);
+        }
+        
         io.emit('userList', Array.from(new Set(onlineUsers.values())));
         io.emit('message', {
             type: 'system',
@@ -1430,47 +1507,224 @@ io.on('connection', (socket) => {
         const activeTag = user?.activeTag || null;
         const nameColor = user?.nameColor || null;
         
-        // Comando /set coins (solo owner)
-        if (typeof msg.content === 'string' && msg.content.startsWith('/set coins @')) {
-            if (!user || user.role !== 'owner') {
+        // Verificar si está silenciado
+        if (mutedUsers.has(username)) {
+            const muteEnd = mutedUsers.get(username);
+            if (Date.now() < muteEnd) {
+                const remaining = Math.ceil((muteEnd - Date.now()) / 60000);
                 socket.emit('message', {
                     type: 'system',
-                    text: 'Solo el owner puede usar este comando',
+                    text: `🔇 Estás silenciado. Tiempo restante: ${remaining} minuto(s)`,
                     time: new Date().toLocaleTimeString()
                 });
                 return;
-            }
-            
-            const match = msg.content.match(/^\/set coins @(\S+)\s+(\d+)$/);
-            if (match) {
-                const targetUsername = match[1];
-                const amount = parseInt(match[2]);
-                const targetUser = registeredUsers[targetUsername];
-                
-                if (targetUser) {
-                    targetUser.coins = amount;
-                    saveUsers(registeredUsers);
-                    socket.emit('message', {
-                        type: 'system',
-                        text: `✅ Se establecieron ${amount} coins a ${targetUsername}`,
-                        time: new Date().toLocaleTimeString()
-                    });
-                } else {
-                    socket.emit('message', {
-                        type: 'system',
-                        text: `❌ Usuario "${targetUsername}" no encontrado`,
-                        time: new Date().toLocaleTimeString()
-                    });
-                }
             } else {
+                mutedUsers.delete(username);
+            }
+        }
+        
+        // Verificar si está baneado temporalmente
+        if (tempBannedUsers.has(username)) {
+            const banEnd = tempBannedUsers.get(username);
+            if (Date.now() < banEnd) {
+                const remaining = Math.ceil((banEnd - Date.now()) / 60000);
                 socket.emit('message', {
                     type: 'system',
-                    text: 'Uso: /set coins @usuario cantidad',
+                    text: `🚫 Estás baneado temporalmente. Tiempo restante: ${remaining} minuto(s)`,
                     time: new Date().toLocaleTimeString()
                 });
+                return;
+            } else {
+                tempBannedUsers.delete(username);
             }
-            return;
         }
+        
+        // ============ COMANDOS ============
+        if (typeof msg.content === 'string' && msg.content.startsWith('/')) {
+            
+            // /set coins @usuario cantidad (solo owner)
+            if (msg.content.startsWith('/set coins @')) {
+                if (!user || user.role !== 'owner') {
+                    socket.emit('message', { type: 'system', text: '❌ Solo el owner puede usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/set coins @(\S+)\s+(\d+)$/);
+                if (match) {
+                    const targetUser = registeredUsers[match[1]];
+                    if (targetUser) {
+                        targetUser.coins = parseInt(match[2]);
+                        saveUsers(registeredUsers);
+                        socket.emit('message', { type: 'system', text: `✅ ${match[1]} ahora tiene ${match[2]} coins`, time: new Date().toLocaleTimeString() });
+                    } else {
+                        socket.emit('message', { type: 'system', text: `❌ Usuario "${match[1]}" no encontrado`, time: new Date().toLocaleTimeString() });
+                    }
+                } else {
+                    socket.emit('message', { type: 'system', text: 'Uso: /set coins @usuario cantidad', time: new Date().toLocaleTimeString() });
+                }
+                return;
+            }
+            
+            // /set admin @usuario (solo owner)
+            if (msg.content.startsWith('/set admin @')) {
+                if (!user || user.role !== 'owner') {
+                    socket.emit('message', { type: 'system', text: '❌ Solo el owner puede usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/set admin @(\S+)$/);
+                if (match) {
+                    const targetUser = registeredUsers[match[1]];
+                    if (targetUser) {
+                        if (targetUser.role === 'owner') {
+                            socket.emit('message', { type: 'system', text: '❌ No puedes cambiar el rol del owner', time: new Date().toLocaleTimeString() });
+                        } else {
+                            targetUser.role = 'admin';
+                            saveUsers(registeredUsers);
+                            socket.emit('message', { type: 'system', text: `✅ ${match[1]} ahora es admin`, time: new Date().toLocaleTimeString() });
+                        }
+                    } else {
+                        socket.emit('message', { type: 'system', text: `❌ Usuario "${match[1]}" no encontrado`, time: new Date().toLocaleTimeString() });
+                    }
+                } else {
+                    socket.emit('message', { type: 'system', text: 'Uso: /set admin @usuario', time: new Date().toLocaleTimeString() });
+                }
+                return;
+            }
+            
+            // /set member @usuario (solo owner)
+            if (msg.content.startsWith('/set member @')) {
+                if (!user || user.role !== 'owner') {
+                    socket.emit('message', { type: 'system', text: '❌ Solo el owner puede usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/set member @(\S+)$/);
+                if (match) {
+                    const targetUser = registeredUsers[match[1]];
+                    if (targetUser) {
+                        if (targetUser.role === 'owner') {
+                            socket.emit('message', { type: 'system', text: '❌ No puedes cambiar el rol del owner', time: new Date().toLocaleTimeString() });
+                        } else {
+                            targetUser.role = 'member';
+                            saveUsers(registeredUsers);
+                            socket.emit('message', { type: 'system', text: `✅ ${match[1]} ahora es member`, time: new Date().toLocaleTimeString() });
+                        }
+                    } else {
+                        socket.emit('message', { type: 'system', text: `❌ Usuario "${match[1]}" no encontrado`, time: new Date().toLocaleTimeString() });
+                    }
+                } else {
+                    socket.emit('message', { type: 'system', text: 'Uso: /set member @usuario', time: new Date().toLocaleTimeString() });
+                }
+                return;
+            }
+            
+            // /shh @usuario minutos (silenciar - owner y admin)
+            if (msg.content.startsWith('/shh @')) {
+                if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+                    socket.emit('message', { type: 'system', text: '❌ Solo owner/admin pueden usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/shh @(\S+)\s+(\d+)$/);
+                if (match) {
+                    const targetUser = registeredUsers[match[1]];
+                    if (targetUser) {
+                        if (targetUser.role === 'owner' || (targetUser.role === 'admin' && user.role !== 'owner')) {
+                            socket.emit('message', { type: 'system', text: '❌ No puedes silenciar a alguien de igual o mayor rango', time: new Date().toLocaleTimeString() });
+                        } else {
+                            const minutes = parseInt(match[2]);
+                            mutedUsers.set(match[1], Date.now() + minutes * 60000);
+                            io.emit('message', { type: 'system', text: `🔇 ${match[1]} ha sido silenciado por ${minutes} minuto(s)`, time: new Date().toLocaleTimeString() });
+                        }
+                    } else {
+                        socket.emit('message', { type: 'system', text: `❌ Usuario "${match[1]}" no encontrado`, time: new Date().toLocaleTimeString() });
+                    }
+                } else {
+                    socket.emit('message', { type: 'system', text: 'Uso: /shh @usuario minutos', time: new Date().toLocaleTimeString() });
+                }
+                return;
+            }
+            
+            // /unshh @usuario (quitar silencio)
+            if (msg.content.startsWith('/unshh @')) {
+                if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+                    socket.emit('message', { type: 'system', text: '❌ Solo owner/admin pueden usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/unshh @(\S+)$/);
+                if (match) {
+                    if (mutedUsers.has(match[1])) {
+                        mutedUsers.delete(match[1]);
+                        io.emit('message', { type: 'system', text: `🔊 ${match[1]} ya puede hablar`, time: new Date().toLocaleTimeString() });
+                    } else {
+                        socket.emit('message', { type: 'system', text: `${match[1]} no está silenciado`, time: new Date().toLocaleTimeString() });
+                    }
+                }
+                return;
+            }
+            
+            // /ban @usuario minutos (ban temporal - owner y admin)
+            if (msg.content.startsWith('/ban @')) {
+                if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+                    socket.emit('message', { type: 'system', text: '❌ Solo owner/admin pueden usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/ban @(\S+)\s+(\d+)$/);
+                if (match) {
+                    const targetUser = registeredUsers[match[1]];
+                    if (targetUser) {
+                        if (targetUser.role === 'owner' || (targetUser.role === 'admin' && user.role !== 'owner')) {
+                            socket.emit('message', { type: 'system', text: '❌ No puedes banear a alguien de igual o mayor rango', time: new Date().toLocaleTimeString() });
+                        } else {
+                            const minutes = parseInt(match[2]);
+                            tempBannedUsers.set(match[1], Date.now() + minutes * 60000);
+                            // Kick del chat
+                            for (const [id, name] of onlineUsers.entries()) {
+                                if (name === match[1]) {
+                                    io.to(id).emit('kicked', `Baneado por ${minutes} minutos`);
+                                }
+                            }
+                            io.emit('message', { type: 'system', text: `🚫 ${match[1]} ha sido baneado por ${minutes} minuto(s)`, time: new Date().toLocaleTimeString() });
+                        }
+                    } else {
+                        socket.emit('message', { type: 'system', text: `❌ Usuario "${match[1]}" no encontrado`, time: new Date().toLocaleTimeString() });
+                    }
+                } else {
+                    socket.emit('message', { type: 'system', text: 'Uso: /ban @usuario minutos', time: new Date().toLocaleTimeString() });
+                }
+                return;
+            }
+            
+            // /unban @usuario
+            if (msg.content.startsWith('/unban @')) {
+                if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+                    socket.emit('message', { type: 'system', text: '❌ Solo owner/admin pueden usar este comando', time: new Date().toLocaleTimeString() });
+                    return;
+                }
+                const match = msg.content.match(/^\/unban @(\S+)$/);
+                if (match) {
+                    if (tempBannedUsers.has(match[1])) {
+                        tempBannedUsers.delete(match[1]);
+                        socket.emit('message', { type: 'system', text: `✅ ${match[1]} ha sido desbaneado`, time: new Date().toLocaleTimeString() });
+                    } else {
+                        socket.emit('message', { type: 'system', text: `${match[1]} no está baneado`, time: new Date().toLocaleTimeString() });
+                    }
+                }
+                return;
+            }
+            
+            // /help - mostrar comandos
+            if (msg.content === '/help') {
+                let helpText = '📋 Comandos disponibles:\n';
+                if (user?.role === 'owner') {
+                    helpText += '/set coins @usuario cantidad\n/set admin @usuario\n/set member @usuario\n';
+                }
+                if (user?.role === 'owner' || user?.role === 'admin') {
+                    helpText += '/shh @usuario minutos\n/unshh @usuario\n/ban @usuario minutos\n/unban @usuario';
+                }
+                socket.emit('message', { type: 'system', text: helpText, time: new Date().toLocaleTimeString() });
+                return;
+            }
+        }
+        
+        // ============ FIN COMANDOS ============
         
         // Validar mensaje
         if (msg.type === 'image') {
